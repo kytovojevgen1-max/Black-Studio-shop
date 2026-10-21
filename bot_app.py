@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS orders (
 )
 """)
 
-cursor.execute("""
+cursor.execute(\>""
 CREATE TABLE IF NOT EXISTS promo (
     code TEXT PRIMARY KEY,
     discount INTEGER,
@@ -237,6 +237,7 @@ def profile_handler(m: types.Message):
     uname = f"@{m.from_user.username}" if m.from_user.username else ""
     user_data = get_user(uid, m.from_user.first_name, uname)
     balance, comp_limit, banned, active_discount, active_promo_code, admin_flag, admin_role = user_data[1:8]
+    active_discount = int(active_discount or 0)
     if banned:
         return
     
@@ -283,7 +284,7 @@ def shop_handler(m: types.Message):
     uid = m.from_user.id
     user_temp_mode.pop(uid, None)
     u_data = get_user(uid, m.from_user.first_name)
-    active_discount, active_promo_code = u_data[5], u_data[6]
+    active_discount, active_promo_code = int(u_data[5] or 0), u_data[6]
     disc_text = f"\n🔥 <i>У вас активирован промокод на скидку {active_discount}% ({active_promo_code})! Скидка применится к следующему заказу.</i>" if active_discount > 0 else ""
     msg = (
         head("🛍", "Официальный каталог Black Studio") +
@@ -989,7 +990,7 @@ def process_order_final(m: types.Message):
     details_text = m.text.strip()
     
     u_data = get_user(uid, m.from_user.first_name)
-    active_discount, active_promo_code = u_data[5], u_data[6]
+    active_discount, active_promo_code = int(u_data[5] or 0), u_data[6]
 
     order_info_map = {
         "stars_br2026": ("Black Russia 2025-26 (с планшетом)", 140, "Stars"),
