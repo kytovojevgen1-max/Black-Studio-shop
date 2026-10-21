@@ -17,7 +17,7 @@ import random
 from flask import Flask
 from telebot import TeleBot, types
 
-BOT_TOKEN = "8889779796:AAHk7gcNt-3Z9wYee0BoSuYf1ZVG55MSPlk"
+BOT_TOKEN = "8889779796:AAGpopudNLm0SZhP-1SV3VKDhwyaOKIZ7F4"
 PRIMARY_ADMIN_ID = 8543358373
 OWNER_USERNAME = "@Evgenn010"
 CO_OWNER_USERNAME = "@forever10002"
