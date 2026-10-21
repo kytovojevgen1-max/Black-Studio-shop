@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-BLACK STUDIO bot — Clean Production Edition (telebot)
+BLACK STUDIO bot — Production Edition (telebot)
 pip install -r requirements.txt
 python bot_app.py
 """
@@ -8,6 +8,7 @@ import os
 import sqlite3
 import datetime
 import logging
+import time
 from telebot import TeleBot, types
 
 # ====================== CONFIG ======================
@@ -387,7 +388,6 @@ def process_compilation(m: types.Message):
         f"🔄 <i>Шаг 1/3: Анализ синтаксиса и структуры...</i>"
     )
     
-    import time
     time.sleep(1)
     bot.edit_message_text(chat_id=m.chat.id, message_id=sent_msg.message_id, text=f"⚙️ <b>{compiler_name}</b>\n📁 Файл: <code>{m.document.file_name}</code>\n🔄 <i>Шаг 2/3: Компиляция через серверные модули...</i>")
     time.sleep(1.5)
@@ -398,12 +398,11 @@ def process_compilation(m: types.Message):
         text=f"✅ <b>Компиляция успешно завершена!</b>\n\n"
              f"🛠 Режим: <b>{compiler_name}</b>\n"
              f"📁 Исходник: <code>{m.document.file_name}</code>\n"
-             f"📉 Осталось попыток на сегодня: <b>{limit - 1} / 30</b>",
-        reply_markup=menu(uid)
+             f"📉 Осталось попыток на сегодня: <b>{limit - 1} / 30</b>"
     )
     
     try:
-        bot.send_document(m.chat.id, m.document.file_id, caption=f"📦 Готовый скомпилированный файл от {BOT_NAME}")
+        bot.send_document(m.chat.id, m.document.file_id, caption=f"📦 Готовый скомпилированный файл от {BOT_NAME}", reply_markup=menu(uid))
     except:
         pass
 
@@ -522,5 +521,5 @@ def process_promo(m: types.Message):
     bot.send_message(m.chat.id, f"✅ Промокод успешно активирован!\n🔥 Ваша скидка: <b>{discount}%</b> у владельца {OWNER_USERNAME}", reply_markup=menu(uid))
 
 if __name__ == "__main__":
-    print("BLACK STUDIO bot (Ultimate Edition) успешно запущен!")
-    bot.infinity_polling(skip_pending=True)
+    print("BLACK STUDIO bot (Production Edition) успешно запущен!")
+    bot.infinity_polling(skip_pendings=True)
