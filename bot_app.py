@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-BLACK STUDIO bot — Store & Order System Edition with Site Details (telebot)
+BLACK STUDIO bot — Complete Store & Interactive Chat Edition (telebot)
 pip install -r requirements.txt
 python bot_app.py
 """
@@ -36,7 +36,9 @@ CREATE TABLE IF NOT EXISTS users (
     comp_limit INTEGER DEFAULT 30,
     last_reset TEXT,
     is_banned INTEGER DEFAULT 0,
-    ref_by INTEGER
+    ref_by INTEGER,
+    active_discount INTEGER DEFAULT 0,
+    active_promo_code TEXT DEFAULT ''
 )
 """)
 cursor.execute("""
@@ -60,20 +62,20 @@ user_order_step = {}
 
 def get_user(uid, name="User"):
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-    cursor.execute("SELECT id, balance, comp_limit, last_reset, is_banned FROM users WHERE id = ?", (uid,))
+    cursor.execute("SELECT id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code FROM users WHERE id = ?", (uid,))
     row = cursor.fetchone()
     
     if not row:
-        cursor.execute("INSERT INTO users (id, name, last_reset) VALUES (?, ?, ?)", (uid, name, today))
+        cursor.execute("INSERT INTO users (id, name, last_reset, active_discount, active_promo_code) VALUES (?, ?, ?, 0, '')", (uid, name, today))
         db.commit()
-        return (uid, 0, 30, 0)
+        return (uid, 0, 30, 0, 0, '')
     else:
-        user_id, balance, comp_limit, last_reset, is_banned = row
+        user_id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code = row
         if last_reset != today:
             cursor.execute("UPDATE users SET comp_limit = 30, last_reset = ? WHERE id = ?", (today, uid))
             db.commit()
-            return (user_id, balance, 30, is_banned)
-        return (user_id, balance, comp_limit, is_banned)
+            return (user_id, balance, 30, is_banned, active_discount, active_promo_code)
+        return (user_id, balance, comp_limit, is_banned, active_discount, active_promo_code)
 
 def is_admin(uid):
     return uid == ADMIN_ID
@@ -81,7 +83,7 @@ def is_admin(uid):
 def menu(uid):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
-        types.KeyboardButton("🛍 Магазин (Buy list)"),
+        types.KeyboardButton("🛍 Покупки"),
         types.KeyboardButton("👤 Мой профиль"),
         types.KeyboardButton("🔨 PWN Compiler"),
         types.KeyboardButton("⚙️ JNI Compiler"),
@@ -101,7 +103,7 @@ def head(emoji, title):
 def start_cmd(m: types.Message):
     u = m.from_user
     args = m.text.split()
-    _, _, _, banned = get_user(u.id, u.first_name)
+    _, _, _, banned, _, _ = get_user(u.id, u.first_name)
     
     if banned:
         bot.send_message(m.chat.id, "❌ Вы заблокированы в этом боте администрацией.")
@@ -133,27 +135,46 @@ def start_cmd(m: types.Message):
 def main_router(m: types.Message):
     uid = m.from_user.id
     text = m.text
-    balance, comp_limit, banned = get_user(uid, m.from_user.first_name)[1:]
+    user_data = get_user(uid, m.from_user.first_name)
+    balance, comp_limit, banned, active_discount, active_promo_code = user_data[1:]
 
     if banned:
         bot.send_message(m.chat.id, "❌ Вы заблокированы администрацией.")
         return
 
+    # Direct messaging system: Admin replies to user message
+    if is_admin(uid) and m.reply_to_message and m.reply_to_message.text:
+        orig_text = m.reply_to_message.text
+        if "🆔 Айди аккаунта:" in orig_text or "🆔 ID:" in orig_text:
+            try:
+                target_id = int(orig_text.split("Айди аккаунта:")[1].split()[0]) if "Айди аккаунта:" in orig_text else int(orig_text.split("ID:")[1].split()[0])
+                bot.send_message(
+                    target_id,
+                    f"💬 <b>Сообщение от администратора ({OWNER_USERNAME}):</b>\n\n{text}"
+                )
+                bot.send_message(m.chat.id, f"✅ Сообщение успешно доставлено пользователю <code>{target_id}</code>!")
+                return
+            except Exception as e:
+                bot.send_message(m.chat.id, f"❌ Ошибка отправки сообщения: {e}")
+
     if text == "👤 Мой профиль":
+        promo_info = f"🔥 <b>Активный промокод:</b> <code>{active_promo_code}</code> ({active_discount}% скидки)" if active_discount > 0 else "❌ <b>Промокод не активирован</b>"
         msg = (
             head("👤", "Личный кабинет") +
             f"🆔 <b>Ваш ID:</b> <code>{uid}</code>\n"
             f"👤 <b>Имя:</b> {m.from_user.full_name}\n"
             f"🔨 <b>Осталось компиляций на сегодня:</b> {comp_limit} / 30\n"
-            f"💰 <b>Баланс баллов:</b> {balance}\n\n"
-            "<i>Лимит обновляется автоматически каждый день в 00:00 по МСК.</i>"
+            f"💰 <b>Баланс баллов:</b> {balance}\n"
+            f"{promo_info}\n\n"
+            "<i>Лимит компиляций обновляется каждый день в 00:00 по МСК.</i>"
         )
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
 
-    elif text == "🛍 Магазин (Buy list)":
+    elif text in ("🛍 Покупки", "🛍 Магазин (Buy list)"):
+        disc_text = f"\n🔥 <i>У вас активирована скидка {active_discount}% (промокод: {active_promo_code})!</i>" if active_discount > 0 else ""
         msg = (
-            head("🛍", "Официальный магазин Black Studio") +
-            "Выберите интересующий вас товар для просмотра подробностей, галереи скринов и быстрого оформления заказа:"
+            head("🛍", "Официальный каталог Black Studio") +
+            f"Выберите интересующий вас товар для просмотра подробностей, галереи скринов и быстрого оформления заказа:{disc_text}"
         )
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(
@@ -193,7 +214,7 @@ def main_router(m: types.Message):
         bot.send_message(m.chat.id, msg, reply_markup=markup)
 
     elif text == "🎁 Промокод":
-        msg = bot.send_message(m.chat.id, "🎁 Введите ваш промокод в ответном сообщении:")
+        msg = bot.send_message(m.chat.id, "🎁 Введите ваш промокод на скидку в ответном сообщении:")
         bot.register_next_step_handler(msg, process_promo)
 
     elif text == "👥 Пригласить друзей":
@@ -211,16 +232,18 @@ def main_router(m: types.Message):
             head("⚙️", "Связь и поддержка") +
             f"💬 <b>Отзывы:</b> {REVIEWS_URL}\n"
             f"👑 <b>Владелец (Telegram):</b> {OWNER_USERNAME}\n"
-            f"👑 <b>Владелец (VK):</b> {OWNER_VK}"
+            f"👑 <b>Владелец (VK):</b> {OWNER_VK}\n\n"
+            "<i>Вы также можете просто отправить любое сообщение сюда в чат, и владелец ответит вам напрямую!</i>"
         )
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
 
     elif text == "❓ Как пользоваться":
         msg = (
             head("❓", "Инструкция по использованию") +
-            "1️⃣ Перейдите в <b>🛍 Магазин</b>, выберите товар и оформите заказ в 2 клика.\n"
-            "2️⃣ Используйте <b>🔨 PWN Compiler</b> для быстрой компиляции `.pwn` скриптов.\n"
-            "3️⃣ В <b>⚙️ JNI Compiler</b> отправляйте исходники для сборки `.so` библиотек.\n\n"
+            "1️⃣ Перейдите в раздел <b>🛍 Покупки</b>, выберите нужный товар или мод.\n"
+            "2️⃣ При заказе мода отправьте 1 сообщением все настройки сервера.\n"
+            "3️⃣ Активируйте промокод в разделе <b>🎁 Промокод</b> для получения скидки.\n"
+            "4️⃣ Компилируйте `.pwn` и JNI `.so` файлы прямо через бота.\n\n"
             f"По всем вопросам: {OWNER_USERNAME}"
         )
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
@@ -246,6 +269,26 @@ def main_router(m: types.Message):
             types.InlineKeyboardButton("❌ Очистить базу", callback_data="adm_clearpromo")
         )
         bot.send_message(m.chat.id, msg, reply_markup=markup)
+
+    else:
+        # Standard fallback / messaging forwarder to Admin
+        if not is_admin(uid):
+            try:
+                username_str = f"@{m.from_user.username}" if m.from_user.username else "Отсутствует"
+                fwd_text = (
+                    f"💬 <b>НОВОЕ СООБЩЕНИЕ ОТ ПОЛЬЗОВАТЕЛЯ!</b>\n"
+                    f"{LINE}\n"
+                    f"👤 <b>Ник:</b> {m.from_user.full_name}\n"
+                    f"🔗 <b>Юзернейм:</b> {username_str}\n"
+                    f"🆔 <b>ID:</b> <code>{uid}</code>\n\n"
+                    f"💬 <b>Сообщение:</b>\n{text}\n"
+                    f"{LINE}\n"
+                    f"<i>Ответьте на это сообщение в боте, чтобы написать пользователю в ЛС!</i>"
+                )
+                bot.send_message(ADMIN_ID, fwd_text)
+                bot.send_message(m.chat.id, "✅ Ваше сообщение отправлено владельцу! Ожидайте ответа.")
+            except Exception as e:
+                logging.error(f"Error forwarding message to admin: {e}")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_router(call: types.CallbackQuery):
@@ -273,7 +316,7 @@ def callback_router(call: types.CallbackQuery):
             types.InlineKeyboardButton("💳 Купить в ₽ (без pwn - 100 ₽)", callback_data="order_rub_br2026_nopwn"),
             types.InlineKeyboardButton("💳 Купить в ₽ (с pwn - 150 ₽)", callback_data="order_rub_br2026_pwn"),
             types.InlineKeyboardButton("🖼 Открыть галерею скриншотов", url="https://postimg.cc/gallery/0yngT7c"),
-            types.InlineKeyboardButton("◀️ Назад в магазин", callback_data="back_to_shop")
+            types.InlineKeyboardButton("◀️ Назад в каталог", callback_data="back_to_shop")
         )
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=msg, reply_markup=markup)
         return
@@ -292,7 +335,7 @@ def callback_router(call: types.CallbackQuery):
             types.InlineKeyboardButton("⭐ Купить за Stars (120 Stars)", callback_data="order_stars_br2025"),
             types.InlineKeyboardButton("💳 Купить в ₽ (без pwn - 60 ₽)", callback_data="order_rub_br2025_nopwn"),
             types.InlineKeyboardButton("💳 Купить в ₽ (с pwn - 90 ₽)", callback_data="order_rub_br2025_pwn"),
-            types.InlineKeyboardButton("◀️ Назад в магазин", callback_data="back_to_shop")
+            types.InlineKeyboardButton("◀️ Назад в каталог", callback_data="back_to_shop")
         )
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=msg, reply_markup=markup)
         return
@@ -311,7 +354,7 @@ def callback_router(call: types.CallbackQuery):
             types.InlineKeyboardButton("⭐ Купить за Stars (100 Stars)", callback_data="order_stars_br2025_robots"),
             types.InlineKeyboardButton("💳 Купить в ₽ (без pwn - 80 ₽)", callback_data="order_rub_br2025_robots_nopwn"),
             types.InlineKeyboardButton("💳 Купить в ₽ (с pwn - 130 ₽)", callback_data="order_rub_br2025_robots_pwn"),
-            types.InlineKeyboardButton("◀️ Назад в магазин", callback_data="back_to_shop")
+            types.InlineKeyboardButton("◀️ Назад в каталог", callback_data="back_to_shop")
         )
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=msg, reply_markup=markup)
         return
@@ -330,7 +373,7 @@ def callback_router(call: types.CallbackQuery):
             types.InlineKeyboardButton("⭐ Купить за Stars (100 Stars)", callback_data="order_stars_radmir"),
             types.InlineKeyboardButton("💳 Купить в ₽ (без pwn - 90 ₽)", callback_data="order_rub_radmir_nopwn"),
             types.InlineKeyboardButton("💳 Купить в ₽ (с pwn - 150 ₽)", callback_data="order_rub_radmir_pwn"),
-            types.InlineKeyboardButton("◀️ Назад в магазин", callback_data="back_to_shop")
+            types.InlineKeyboardButton("◀️ Назад в каталог", callback_data="back_to_shop")
         )
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=msg, reply_markup=markup)
         return
@@ -351,14 +394,14 @@ def callback_router(call: types.CallbackQuery):
         markup.add(
             types.InlineKeyboardButton(f"⭐ Купить за Stars ({price_stars})", callback_data=f"order_stars_gen_{data}"),
             types.InlineKeyboardButton(f"💳 Купить в ₽ ({price_rub})", callback_data=f"order_rub_gen_{data}"),
-            types.InlineKeyboardButton("◀️ Назад в магазин", callback_data="back_to_shop")
+            types.InlineKeyboardButton("◀️ Назад в каталог", callback_data="back_to_shop")
         )
         bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=msg, reply_markup=markup)
         return
 
     elif data == "back_to_shop":
         msg = (
-            head("🛍", "Официальный магазин Black Studio") +
+            head("🛍", "Официальный каталог Black Studio") +
             "Выберите интересующий вас товар для просмотра подробностей, галереи скринов и быстрого оформления заказа:"
         )
         markup = types.InlineKeyboardMarkup(row_width=1)
@@ -380,13 +423,23 @@ def callback_router(call: types.CallbackQuery):
         
         bot.answer_callback_query(call.id, "Оформление заказа...")
         
-        # Adaptive hint depending on item type (Site vs Forum vs Mod)
         if "site" in order_details:
             prompt_text = "🌐 <b>Напишите ответным сообщением название проекта для вашего САЙТА</b> (например: <i>PRINCE RUSSIA</i>):"
         elif "forum" in order_details:
             prompt_text = "🌐 <b>Напишите ответным сообщением название проекта для вашего ФОРУМА</b> (например: <i>SPB ONLINE FORUM</i>):"
         else:
-            prompt_text = "✏️ <b>Напишите ответным сообщением название вашего проекта/сервера</b> (или пожелания к заказу):"
+            prompt_text = (
+                "✏️ <b>Отправьте данные для настройки Вашего Мода В ОДНОМ СООБЩЕНИИ:</b>\n\n"
+                "1️⃣ Название сервера\n"
+                "2️⃣ Название Проекта\n"
+                "3️⃣ Скок бонус вертов\n"
+                "4️⃣ Доната\n"
+                "5️⃣ Тгк\n"
+                "6️⃣ ВК\n"
+                "7️⃣ Сайт\n"
+                "8️⃣ Вип\n"
+                "9️⃣ И лвл"
+            )
 
         msg = bot.send_message(call.message.chat.id, prompt_text)
         bot.register_next_step_handler(msg, process_order_final)
@@ -430,7 +483,7 @@ def callback_router(call: types.CallbackQuery):
         bot.register_next_step_handler(msg, execute_broadcast)
 
     elif data == "adm_addpromo":
-        msg = bot.send_message(call.message.chat.id, "➕ Введите промокод, скидку (%) и лимит людей через пробел:\nПример: <code>BLACK2026 15 5000</code>")
+        msg = bot.send_message(call.message.chat.id, "➕ Введите промокод, скидку (%) и лимит людей через пробел:\nПример: <code>BLACK50 50 100</code>")
         bot.register_next_step_handler(msg, save_new_promo)
 
     elif data == "adm_listpromo":
@@ -482,52 +535,62 @@ def callback_router(call: types.CallbackQuery):
 def process_order_final(m: types.Message):
     uid = m.from_user.id
     order_code = user_order_step.get(uid, "unknown")
-    project_name = m.text.strip()
+    details_text = m.text.strip()
     
+    # Check user discount
+    u_data = get_user(uid, m.from_user.first_name)
+    active_discount, active_promo_code = u_data[4], u_data[5]
+
     order_info_map = {
-        "stars_br2026": ("Black Russia 2025-26 (с планшетом)", "140 Telegram Stars"),
-        "rub_br2026_nopwn": ("Black Russia 2025-26 (с планшетом, без PWN)", "100 ₽"),
-        "rub_br2026_pwn": ("Black Russia 2025-26 (с планшетом, с PWN)", "150 ₽"),
+        "stars_br2026": ("Black Russia 2025-26 (с планшетом)", 140, "Stars"),
+        "rub_br2026_nopwn": ("Black Russia 2025-26 (с планшетом, без PWN)", 100, "₽"),
+        "rub_br2026_pwn": ("Black Russia 2025-26 (с планшетом, с PWN)", 150, "₽"),
         
-        "stars_br2025": ("Black Russia 2025 (без планшета)", "120 Telegram Stars"),
-        "rub_br2025_nopwn": ("Black Russia 2025 (без планшета, без PWN)", "60 ₽"),
-        "rub_br2025_pwn": ("Black Russia 2025 (без планшета, с PWN)", "90 ₽"),
+        "stars_br2025": ("Black Russia 2025 (без планшета)", 120, "Stars"),
+        "rub_br2025_nopwn": ("Black Russia 2025 (без планшета, без PWN)", 60, "₽"),
+        "rub_br2025_pwn": ("Black Russia 2025 (без планшета, с PWN)", 90, "₽"),
         
-        "stars_br2025_robots": ("Black Russia 2025 (роботы фулл)", "100 Telegram Stars"),
-        "rub_br2025_robots_nopwn": ("Black Russia 2025 (роботы фулл, без PWN)", "80 ₽"),
-        "rub_br2025_robots_pwn": ("Black Russia 2025 (роботы фулл, с PWN)", "130 ₽"),
+        "stars_br2025_robots": ("Black Russia 2025 (роботы фулл)", 100, "Stars"),
+        "rub_br2025_robots_nopwn": ("Black Russia 2025 (роботы фулл, без PWN)", 80, "₽"),
+        "rub_br2025_robots_pwn": ("Black Russia 2025 (роботы фулл, с PWN)", 130, "₽"),
         
-        "stars_radmir": ("Мод Радмир 8.4 (ПК)", "100 Telegram Stars"),
-        "rub_radmir_nopwn": ("Мод Радмир 8.4 (ПК, без PWN)", "90 ₽"),
-        "rub_radmir_pwn": ("Мод Радмир 8.4 (ПК, с PWN)", "150 ₽"),
+        "stars_radmir": ("Мод Радмир 8.4 (ПК)", 100, "Stars"),
+        "rub_radmir_nopwn": ("Мод Радмир 8.4 (ПК, без PWN)", 90, "₽"),
+        "rub_radmir_pwn": ("Мод Радмир 8.4 (ПК, с PWN)", 150, "₽"),
         
-        "stars_gen_buy_forum": ("Готовый Форум", "50 Telegram Stars"),
-        "rub_gen_buy_forum": ("Готовый Форум", "40 ₽"),
+        "stars_gen_buy_forum": ("Готовый Форум", 50, "Stars"),
+        "rub_gen_buy_forum": ("Готовый Форум", 40, "₽"),
         
-        "stars_gen_buy_site": ("Готовый Сайт", "50 Telegram Stars"),
-        "rub_gen_buy_site": ("Готовый Сайт", "38 ₽"),
+        "stars_gen_buy_site": ("Готовый Сайт", 50, "Stars"),
+        "rub_gen_buy_site": ("Готовый Сайт", 38, "₽"),
         
-        "stars_gen_buy_other": ("Услуга / Лаунчер / Стиль", "50 Telegram Stars"),
-        "rub_gen_buy_other": ("Услуга / Лаунчер / Стиль", "40 ₽"),
+        "stars_gen_buy_other": ("Услуга / Лаунчер / Стиль", 50, "Stars"),
+        "rub_gen_buy_other": ("Услуга / Лаунчер / Стиль", 40, "₽"),
     }
     
-    item_title, price_str = order_info_map.get(order_code, ("Товар из магазина", "Расчет стоимости"))
+    item_title, orig_price, currency = order_info_map.get(order_code, ("Товар из магазина", 0, "₽"))
     
-    label_field = "Название для САЙТА/проекта" if "site" in order_code else ("Название для ФОРУМА/проекта" if "forum" in order_code else "Название проекта/сервера")
+    if active_discount > 0:
+        final_price = int(orig_price * (100 - active_discount) / 100)
+        price_str = f"<s>{orig_price} {currency}</s> 🔥 <b>{final_price} {currency}</b> (СО СКИДКОЙ по промокоду <code>{active_promo_code}</code> -{active_discount}%)"
+    else:
+        price_str = f"<b>{orig_price} {currency}</b>"
 
     bot.send_message(
         m.chat.id,
         f"✅ <b>Заказ успешно зарегистрирован!</b>\n\n"
         f"🛍 <b>Товар:</b> {item_title}\n"
-        f"💰 <b>К оплате:</b> {price_str}\n"
-        f"📝 <b>{label_field}:</b> {project_name}\n\n"
-        f"📩 <i>Информация о вашем заказе и реквизиты отправлены владельцу ({OWNER_USERNAME}). Скоро с вами свяжутся!</i>",
+        f"💰 <b>К оплате:</b> {price_str}\n\n"
+        f"📋 <b>Ваши данные настройки:</b>\n{details_text}\n\n"
+        f"📩 <i>Информация о вашем заказе отправлена владельцу ({OWNER_USERNAME}). Скоро с вами свяжутся!</i>",
         reply_markup=menu(uid)
     )
     
     try:
         username_str = f"@{m.from_user.username}" if m.from_user.username else "Отсутствует"
         
+        discount_alert = f"\n🏷 <b>ПРИМЕНЕНА СКИДКА:</b> {active_discount}% (Промокод: <code>{active_promo_code}</code>)" if active_discount > 0 else ""
+
         admin_order_msg = (
             f"🛒 <b>ПОСТУПИЛ НОВЫЙ ЗАКАЗ ИЗ МАГАЗИНА!</b>\n"
             f"{LINE}\n"
@@ -535,8 +598,8 @@ def process_order_final(m: types.Message):
             f"🔗 <b>Юзернейм:</b> {username_str}\n"
             f"🆔 <b>Айди аккаунта:</b> <code>{uid}</code>\n\n"
             f"🛍 <b>Что хочет купить:</b> {item_title}\n"
-            f"💵 <b>Сколько стоит:</b> {price_str}\n"
-            f"🌐 <b>{label_field}:</b> <code>{project_name}</code>\n"
+            f"💵 <b>Сколько стоит:</b> {price_str}{discount_alert}\n\n"
+            f"📋 <b>Настройки от клиента:</b>\n<code>{details_text}</code>\n"
             f"{LINE}"
         )
         
@@ -550,7 +613,7 @@ def process_order_final(m: types.Message):
 @bot.message_handler(content_types=['document'])
 def process_compilation(m: types.Message):
     uid = m.from_user.id
-    _, _, limit, banned = get_user(uid, m.from_user.first_name)
+    _, _, limit, banned, _, _ = get_user(uid, m.from_user.first_name)
 
     if banned:
         bot.send_message(m.chat.id, "❌ Вы заблокированы.")
@@ -593,7 +656,6 @@ def process_compilation(m: types.Message):
         except:
             pass
     else:
-        # Full NDK Structure Compilation (.zip with libs/arm64-v8a/libplugin.so)
         ndk_ver = mode.replace("JNI_", "").lower()
         
         if limit <= 0:
@@ -702,7 +764,7 @@ def save_new_promo(m: types.Message):
         db.commit()
         bot.send_message(m.chat.id, f"✅ Промокод <code>{code}</code> успешно создан!\nСкидка: {discount}%\nЛимит: {max_uses} чел.")
     except Exception:
-        bot.send_message(m.chat.id, "❌ Ошибка формата. Пример: <code>BLACK2026 15 5000</code>")
+        bot.send_message(m.chat.id, "❌ Ошибка формата. Пример: <code>BLACK50 50 100</code>")
 
 def delete_promo_handler(m: types.Message):
     code = m.text.strip()
@@ -724,12 +786,12 @@ def add_balance_handler(m: types.Message):
 def user_info_handler(m: types.Message):
     try:
         uid = int(m.text.strip())
-        cursor.execute("SELECT id, name, balance, comp_limit, is_banned FROM users WHERE id = ?", (uid,))
+        cursor.execute("SELECT id, name, balance, comp_limit, is_banned, active_discount, active_promo_code FROM users WHERE id = ?", (uid,))
         u = cursor.fetchone()
         if not u:
             bot.send_message(m.chat.id, "❌ Пользователь не найден в базе.")
             return
-        bot.send_message(m.chat.id, f"👤 <b>Инфо о юзере:</b>\nID: <code>{u[0]}</code>\nИмя: {u[1]}\nБаланс: {u[2]}\nЛимит: {u[3]}/30\nБан: {'Да' if u[4] else 'Нет'}")
+        bot.send_message(m.chat.id, f"👤 <b>Инфо о юзере:</b>\nID: <code>{u[0]}</code>\nИмя: {u[1]}\nБаланс: {u[2]}\nЛимит: {u[3]}/30\nСкидка: {u[5]}% ({u[6]})\nБан: {'Да' if u[4] else 'Нет'}")
     except:
         bot.send_message(m.chat.id, "❌ Неверный ID.")
 
@@ -756,7 +818,7 @@ def send_to_user_handler(m: types.Message):
         parts = m.text.strip().split(maxsplit=1)
         uid = int(parts[0])
         text = parts[1]
-        bot.send_message(uid, f"📬 <b>Сообщение от администрации:</b>\n\n{text}")
+        bot.send_message(uid, f"📬 <b>Сообщение от администрации ({OWNER_USERNAME}):</b>\n\n{text}")
         bot.send_message(m.chat.id, f"✅ Сообщение отправлено пользователю <code>{uid}</code>.")
     except:
         bot.send_message(m.chat.id, "❌ Ошибка формата. Пример: <code>123456789 Привет!</code>")
@@ -776,7 +838,7 @@ def execute_broadcast(m: types.Message):
 
 def process_promo(m: types.Message):
     uid = m.from_user.id
-    code = m.text.strip()
+    code = m.text.strip().upper()
     cursor.execute("SELECT discount, max_uses, used_count FROM promo WHERE code = ?", (code,))
     promo = cursor.fetchone()
     
@@ -803,9 +865,10 @@ def process_promo(m: types.Message):
         cursor.execute("UPDATE promo SET used_count = ? WHERE code = ?", (new_used, code))
     
     cursor.execute("INSERT INTO used_promo (user_id, code) VALUES (?, ?)", (uid, code))
+    cursor.execute("UPDATE users SET active_discount = ?, active_promo_code = ? WHERE id = ?", (discount, code, uid))
     db.commit()
-    bot.send_message(m.chat.id, f"✅ Промокод успешно активирован!\n🔥 Ваша скидка: <b>{discount}%</b> у владельца {OWNER_USERNAME}", reply_markup=menu(uid))
+    bot.send_message(m.chat.id, f"🎉 <b>Промокод {code} успешно активирован!</b>\n🔥 Вы получили постоянную скидку <b>{discount}%</b> на все покупки в магазине!", reply_markup=menu(uid))
 
 if __name__ == "__main__":
-    print("BLACK STUDIO bot (Store & Order System Edition) успешно запущен!")
+    print("BLACK STUDIO bot (Store & Interactive Chat Edition) успешно запущен!")
     bot.infinity_polling()
