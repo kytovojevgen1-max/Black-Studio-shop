@@ -4,5 +4,3 @@ pillow==11.0.0
 pymysql==1.1.1
 edge-tts==6.1.9
 gtts==2.5.4
-scipy==1.14.1
-numpy==2.1.3
