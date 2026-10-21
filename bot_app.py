@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-BLACK STUDIO bot — Separate PWN & JNI Compilers (telebot)
+BLACK STUDIO bot — Clean Production Edition (telebot)
 pip install -r requirements.txt
 python bot_app.py
 """
@@ -14,8 +14,8 @@ from telebot import TeleBot, types
 
 # ====================== CONFIG ======================
 BOT_TOKEN = "8889779796:AAHlwmV3T6KB0_zi13UrRopG-XkI6zWlW_A"
-ADMIN_ID = 8543358373                     # твой Telegram ID
-OWNER_USERNAME = "@Evgenn010"              # связь / оплата
+ADMIN_ID = 8543358373
+OWNER_USERNAME = "@Evgenn010"
 OWNER_VK = "vk.ru/evgenn09"
 REVIEWS_URL = "https://t.me/BlackSTUDIOotziv"
 BOT_NAME = "BLACK STUDIO"
@@ -56,7 +56,6 @@ CREATE TABLE IF NOT EXISTS used_promo (
 """)
 db.commit()
 
-# Временное хранилище выбранного режима (PWN или JNI с версией NDK)
 user_temp_mode = {}
 
 def get_user(uid, name="User"):
@@ -98,7 +97,6 @@ def menu(uid):
 def head(emoji, title):
     return f"{emoji} <b>{title}</b>\n{LINE}\n\n"
 
-# --- START ---
 @bot.message_handler(commands=["start"])
 def start_cmd(m: types.Message):
     u = m.from_user
@@ -115,19 +113,18 @@ def start_cmd(m: types.Message):
                 cursor.execute("UPDATE users SET balance = balance + 5 WHERE id = ?", (ref_id,))
                 db.commit()
                 try:
-                    bot.send_message(ref_id, f"🎉 По вашей ссылке зарегистрировался новый пользователь! Вам начислено +5 баллов.")
+                    bot.send_message(ref_id, "🎉 По вашей ссылке зарегистрировался новый пользователь! Вам начислено +5 баллов.")
                 except:
                     pass
 
     text = (
         head("🖐", f"Добро пожаловать в {BOT_NAME}!") +
-        f"Лучшая студия скриптинга, разработки и игровых сборок.\n\n"
-        f"▫️ Ежедневный лимит бесплатных компиляций: <b>30 раз в день</b>.\n"
-        f"▫️ Выбирайте нужный компилятор в меню ниже 👇"
+        "Лучшая студия скриптинга, разработки и игровых сборок.\n\n"
+        "▫️ Ежедневный лимит бесплатных компиляций: <b>30 раз в день</b>.\n"
+        "▫️ Выбирайте нужный компилятор в меню ниже 👇"
     )
     bot.send_message(m.chat.id, text, reply_markup=menu(u.id))
 
-# --- ROUTER ---
 @bot.message_handler(func=lambda m: True)
 def main_router(m: types.Message):
     uid = m.from_user.id
@@ -141,7 +138,7 @@ def main_router(m: types.Message):
             f"👤 <b>Имя:</b> {m.from_user.full_name}\n"
             f"🔨 <b>Осталось компиляций на сегодня:</b> {comp_limit} / 30\n"
             f"💰 <b>Баланс баллов:</b> {balance}\n\n"
-            f"<i>Лимит обновляется автоматически каждый день в 00:00 по МСК.</i>"
+            "<i>Лимит обновляется автоматически каждый день в 00:00 по МСК.</i>"
         )
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
 
@@ -161,7 +158,7 @@ def main_router(m: types.Message):
             "<b>⚙️ Прочее (50 ⭐ / 40 ₽ каждый):</b>\n"
             "• Ваш стиль на форум\n• Поставить ваш мод на сервер\n• Сделать / подключить лаунчер\n"
             "<i>Другое: пишите в ЛС для расчета стоимости.</i>\n\n"
-            f"📌 <b>Примечание:</b> Обязательно наличие своего хостинга! Возможна оплата в рублях напрямую на хостинг.\n\n"
+            "📌 <b>Примечание:</b> Обязательно наличие своего хостинга! Возможна оплата в рублях напрямую на хостинг.\n\n"
             f"👑 <b>Контакты для покупки:</b>\n"
             f"• Telegram: {OWNER_USERNAME}\n"
             f"• VK: {OWNER_VK}\n"
@@ -243,7 +240,6 @@ def main_router(m: types.Message):
         )
         bot.send_message(m.chat.id, msg, reply_markup=markup)
 
-# --- CALLBACKS (NDK & ADMIN) ---
 @bot.callback_query_handler(func=lambda call: call.data.startswith("ndk_") or call.data.startswith("admin_"))
 def callback_router(call: types.CallbackQuery):
     uid = call.from_user.id
@@ -284,7 +280,6 @@ def callback_router(call: types.CallbackQuery):
         msg = bot.send_message(call.message.chat.id, "Введите текст для рассылки всем пользователям:")
         bot.register_next_step_handler(msg, execute_broadcast)
 
-# --- FILE HANDLER (SEPARATE PWN & JNI) ---
 @bot.message_handler(content_types=['document'])
 def process_compilation(m: types.Message):
     uid = m.from_user.id
@@ -295,12 +290,11 @@ def process_compilation(m: types.Message):
     fname = m.document.file_name.lower()
     mode = user_temp_mode.get(uid, "PWN")
 
-    # Проверка формата в зависимости от выбранного режима
     if mode == "PWN":
         if not fname.endswith(".pwn"):
             bot.send_message(m.chat.id, "❌ Вы выбрали <b>PWN Compiler</b>. Пожалуйста, отправьте файл с расширением <code>.pwn</code>.", reply_markup=menu(uid))
             return
-    else: # JNI режим
+    else:
         allowed_jni = (".jni", ".zip", ".rar", ".tar", ".gz", ".7z")
         if not fname.endswith(allowed_jni):
             bot.send_message(m.chat.id, "❌ Вы выбрали <b>JNI Compiler</b>. Пожалуйста, отправьте архив <code>.zip</code> / <code>.rar</code> или файл <code>.jni</code>.", reply_markup=menu(uid))
@@ -311,7 +305,6 @@ def process_compilation(m: types.Message):
         bot.send_message(m.chat.id, "❌ <b>Лимит исчерпан!</b>\nУ вас закончились бесплатные попытки на сегодня (обновление в 00:00 МСК).", reply_markup=menu(uid))
         return
 
-    # Списываем 1 попытку
     cursor.execute("UPDATE users SET comp_limit = comp_limit - 1 WHERE id = ?", (uid,))
     db.commit()
 
@@ -337,7 +330,6 @@ def process_compilation(m: types.Message):
         reply_markup=menu(uid)
     )
 
-# --- PROMO & ADMIN LOGIC ---
 def process_promo(m: types.Message):
     uid = m.from_user.id
     code = m.text.strip()
@@ -400,91 +392,6 @@ def execute_broadcast(m: types.Message):
     bot.send_message(m.chat.id, f"✅ Рассылка завершена. Успешно отправлено: {success} пользователям.")
 
 if __name__ == "__main__":
-    print("BLACK STUDIO bot с раздельными компиляторами успешно запущен!")
-    bot.infinity_polling(skip_pending=True)
-льца {OWNER_USERNAME}", reply_markup=menu(uid))
-
-# --- COMPILATION HANDLER ---
-def process_compilation(m: types.Message):
-    uid = m.from_user.id
-    if not m.document:
-        bot.send_message(m.chat.id, "❌ Пожалуйста, отправьте документ (.pwn или .jni).", reply_markup=menu(uid))
-        return
-        
-    fname = m.document.file_name
-    if not (fname.endswith(".pwn") or fname.endswith(".jni")):
-        bot.send_message(m.chat.id, "❌ Поддерживаются только файлы с расширением `.pwn` или `.jni`.", reply_markup=menu(uid))
-        return
-
-    _, _, limit = get_user(uid)
-    if limit <= 0:
-        bot.send_message(m.chat.id, "❌ Превышен лимит компиляций на сегодня!", reply_markup=menu(uid))
-        return
-
-    cursor.execute("UPDATE users SET comp_limit = comp_limit - 1 WHERE id = ?", (uid,))
-    db.commit()
-
-    bot.send_message(m.chat.id, f"⚙️ Файл <code>{fname}</code> принят в очередь. Идет компиляция...")
-    import time
-    time.sleep(2)
-    bot.send_message(m.chat.id, f"✅ <b>Компиляция успешно завершена!</b>\nОсталось попыток на сегодня: {limit - 1}", reply_markup=menu(uid))
-
-# --- ADMIN CALLBACKS ---
-@bot.callback_query_handler(func=lambda call: True)
-def callback_router(call: types.CallbackQuery):
-    uid = call.from_user.id
-    data = call.data
-
-    if not is_admin(uid):
-        return
-
-    if data == "admin_addpromo":
-        msg = bot.send_message(call.message.chat.id, "Введите промокод, скидку (%) и лимит людей через пробел.\nПример: <code>SALE20 15 5000</code> (до 5000 человек)")
-        bot.register_next_step_handler(msg, save_new_promo)
-
-    elif data == "admin_listpromo":
-        cursor.execute("SELECT code, discount, max_uses, used_count FROM promo")
-        promos = cursor.fetchall()
-        if not promos:
-            bot.answer_callback_query(call.id, "Нет активных промокодов.", show_alert=True)
-            return
-        text = "📋 <b>Активные промокоды:</b>\n\n"
-        for p in promos:
-            text.format()
-            text += f"🔑 <code>{p[0]}</code> | Скидка: {p[1]}% | Использовано: {p[3]} / {p[2]}\n"
-        bot.send_message(call.message.chat.id, text)
-
-    elif data == "admin_broadcast":
-        msg = bot.send_message(call.message.chat.id, "Введите текст для рассылки всем пользователям:")
-        bot.register_next_step_handler(msg, execute_broadcast)
-
-def save_new_promo(m: types.Message):
-    try:
-        parts = m.text.strip().split()
-        code = parts[0]
-        discount = int(parts[1])
-        max_uses = int(parts[2]) # от 1 до 10000+
-        
-        cursor.execute("INSERT OR REPLACE INTO promo (code, discount, max_uses, used_count) VALUES (?, ?, ?, 0)", (code, discount, max_uses))
-        db.commit()
-        bot.send_message(m.chat.id, f"✅ Промокод <code>{code}</code> успешно создан!\n скидка: {discount}%\n лимит пользователей: {max_uses}")
-    except Exception as e:
-        bot.send_message(m.chat.id, "❌ Ошибка формата. Пример: <code>SUMMER 10 1000</code>")
-
-def execute_broadcast(m: types.Message):
-    text = m.text
-    cursor.execute("SELECT id FROM users")
-    users = cursor.fetchall()
-    success = 0
-    for u in users:
-        try:
-            bot.send_message(u[0], f"📢 <b>Рассылка от Black Studio:</b>\n\n{text}")
-            success += 1
-        except:
-            pass
-    bot.send_message(m.chat.id, f"✅ Рассылка завершена. Успешно отправлено: {success} пользователям.")
-
-if __name__ == "__main__":
     print("BLACK STUDIO bot успешно запущен!")
     bot.infinity_polling(skip_pending=True)
-    
+        
