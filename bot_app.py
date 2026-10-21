@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS orders (
 )
 """)
 
-cursor.execute(\>""
+cursor.execute("""
 CREATE TABLE IF NOT EXISTS promo (
     code TEXT PRIMARY KEY,
     discount INTEGER,
@@ -456,7 +456,6 @@ def text_fallback_router(m: types.Message):
     uid = m.from_user.id
     text = m.text
     
-    # Защита: если отправлена любая кнопка меню, но хендлер выше почему-то пропустил - перенаправляем в меню
     menu_buttons = [
         "🛍 Покупки", "🛍 Магазин (Buy list)", "📦 Мои заказы", "👤 Мой профиль", 
         "🔨 PWN Compiler", "⚙️ JNI Compiler", "🎁 Промокод", "👥 Пригласить друзей", 
