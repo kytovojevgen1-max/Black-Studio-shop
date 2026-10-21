@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """
 BLACK STUDIO bot — Ultimate God Mode 2026
-- Свободный формат ввода заявок (можно писать своими словами, без обязательных "Раз, Два, Три").
-- Убран строгий шаблон, чтобы пользователи и твинки могли подавать заявку в свободной форме.
-- Для сайтов/форумов запрашивается только название проекта.
-- Настоящая компиляция .pwn -> .amx и сборка JNI .so под Android NDK.
+- Для Форума и Сайта запрашивается только название проекта.
+- Для Лаунчера запрашивается название лаунчера и название сервера.
+- Для игровых модов запрашивается полный список (сервер, проект, верты, донат, тгк, вк, сайт, вип, лвл).
+- Уведомления об оплате от @Evgenn010 или @forever10002.
+- Защита от дублей при регистрации (1 аккаунт = 1 сообщение админу).
 """
 import os
 import sqlite3
@@ -21,6 +22,7 @@ from telebot import TeleBot, types
 BOT_TOKEN = "8889779796:AAHk7gcNt-3Z9wYee0BoSuYf1ZVG55MSPlk"
 PRIMARY_ADMIN_ID = 8543358373
 OWNER_USERNAME = "@Evgenn010"
+CO_OWNER_USERNAME = "@forever10002"
 OWNER_VK = "vk.ru/evgenn09"
 REVIEWS_URL = "https://t.me/BlackSTUDIOotziv"
 BOT_NAME = "BLACK STUDIO"
@@ -60,7 +62,8 @@ CREATE TABLE IF NOT EXISTS users (
     active_discount INTEGER DEFAULT 0,
     active_promo_code TEXT DEFAULT '',
     is_admin INTEGER DEFAULT 0,
-    admin_role TEXT DEFAULT 'user'
+    admin_role TEXT DEFAULT 'user',
+    notified_reg INTEGER DEFAULT 0
 )
 """)
 
@@ -74,6 +77,12 @@ try:
     cursor.execute("SELECT admin_role FROM users LIMIT 1")
 except sqlite3.OperationalError:
     cursor.execute("ALTER TABLE users ADD COLUMN admin_role TEXT DEFAULT 'user'")
+    db.commit()
+
+try:
+    cursor.execute("SELECT notified_reg FROM users LIMIT 1")
+except sqlite3.OperationalError:
+    cursor.execute("ALTER TABLE users ADD COLUMN notified_reg INTEGER DEFAULT 0")
     db.commit()
 
 cursor.execute("""
@@ -111,17 +120,17 @@ admin_action_step = {}
 
 def get_user(uid, name="User", username=""):
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-    cursor.execute("SELECT id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code, is_admin, admin_role FROM users WHERE id = ?", (uid,))
+    cursor.execute("SELECT id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code, is_admin, admin_role, notified_reg FROM users WHERE id = ?", (uid,))
     row = cursor.fetchone()
     
     if not row:
         admin_flag = 1 if uid == PRIMARY_ADMIN_ID else 0
         role = 'owner' if uid == PRIMARY_ADMIN_ID else 'user'
-        cursor.execute("INSERT INTO users (id, name, username, last_reset, active_discount, active_promo_code, is_admin, admin_role) VALUES (?, ?, ?, ?, 0, '', ?, ?)", (uid, name, username, today, admin_flag, role))
+        cursor.execute("INSERT INTO users (id, name, username, last_reset, active_discount, active_promo_code, is_admin, admin_role, notified_reg) VALUES (?, ?, ?, ?, 0, '', ?, ?, 0)", (uid, name, username, today, admin_flag, role))
         db.commit()
-        return (uid, 0, 30, 0, 0, '', admin_flag, role)
+        return (uid, 0, 30, 0, 0, '', admin_flag, role, 0)
     else:
-        user_id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code, admin_flag, admin_role = row
+        user_id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code, admin_flag, admin_role, notified_reg = row
         if uid == PRIMARY_ADMIN_ID:
             if not admin_flag or admin_role != 'owner':
                 cursor.execute("UPDATE users SET is_admin = 1, admin_role = 'owner', username = ? WHERE id = ?", (username, uid))
@@ -136,8 +145,8 @@ def get_user(uid, name="User", username=""):
         if last_reset != today:
             cursor.execute("UPDATE users SET comp_limit = 30, last_reset = ? WHERE id = ?", (today, uid))
             db.commit()
-            return (user_id, balance, 30, is_banned, active_discount, active_promo_code, admin_flag, admin_role)
-        return (user_id, balance, comp_limit, is_banned, active_discount, active_promo_code, admin_flag, admin_role)
+            return (user_id, balance, 30, is_banned, active_discount, active_promo_code, admin_flag, admin_role, notified_reg)
+        return (user_id, balance, comp_limit, is_banned, active_discount, active_promo_code, admin_flag, admin_role, notified_reg)
 
 def is_admin(uid):
     if uid == PRIMARY_ADMIN_ID:
@@ -180,12 +189,14 @@ def start_cmd(m: types.Message):
     uname = f"@{u.username}" if u.username else ""
     user_data = get_user(u.id, u.first_name, uname)
     banned = user_data[4]
+    notified_reg = user_data[9]
     
     if banned:
         bot.send_message(m.chat.id, "❌ Вы заблокированы в этом боте администрацией.")
         return
 
-    if u.id != PRIMARY_ADMIN_ID:
+    # Уведомление админу строго 1 раз на 1 аккаунт
+    if u.id != PRIMARY_ADMIN_ID and not notified_reg:
         try:
             username_str = f"@{u.username}" if u.username else "Отсутствует"
             reg_alert = (
@@ -197,6 +208,8 @@ def start_cmd(m: types.Message):
                 f"{LINE}"
             )
             bot.send_message(PRIMARY_ADMIN_ID, reg_alert)
+            cursor.execute("UPDATE users SET notified_reg = 1 WHERE id = ?", (u.id,))
+            db.commit()
         except Exception as e:
             logging.error(f"Error sending registration alert: {e}")
 
@@ -228,7 +241,7 @@ def main_router(m: types.Message):
     text = m.text
     uname = f"@{m.from_user.username}" if m.from_user.username else ""
     user_data = get_user(uid, m.from_user.first_name, uname)
-    balance, comp_limit, banned, active_discount, active_promo_code, admin_flag, admin_role = user_data[1:]
+    balance, comp_limit, banned, active_discount, active_promo_code, admin_flag, admin_role = user_data[1:8]
 
     if banned:
         bot.send_message(m.chat.id, "❌ Вы заблокированы администрацией.")
@@ -349,7 +362,8 @@ def main_router(m: types.Message):
         msg = (
             head("⚙️", "Связь и поддержка") +
             f"💬 <b>Отзывы:</b> {REVIEWS_URL}\n"
-            f"👑 <b>Основатель (Telegram):</b> {OWNER_USERNAME}\n"
+            f"👑 <b>Создатель 1:</b> {OWNER_USERNAME}\n"
+            f"👑 <b>Создатель 2:</b> {CO_OWNER_USERNAME}\n"
             f"👑 <b>Владелец (VK):</b> {OWNER_VK}\n\n"
             "<i>Вы также можете просто отправить любое сообщение сюда в чат, и администрация ответит вам напрямую!</i>"
         )
@@ -359,8 +373,8 @@ def main_router(m: types.Message):
         msg = (
             head("❓", "Инструкция по использованию") +
             "1️⃣ Перейдите в раздел <b>🛍 Покупки</b>, выберите нужный товар или мод.\n"
-            "2️⃣ Напишите заявку своими словами (желательно указать название проекта / копии Black Russia).\n"
-            "3️⃣ Оплата происходит строго <b>ВПЕРЁД</b>! После оформления вам лично напишет создатель: <b>{OWNER_USERNAME}</b>.\n"
+            "2️⃣ Напишите заявку по пунктам (или своими словами).\n"
+            "3️⃣ Оплата происходит строго <b>ВПЕРЁД</b>! По поводу оплаты вам напишут: <b>{OWNER_USERNAME}</b> или <b>{CO_OWNER_USERNAME}</b>.\n"
             "4️⃣ Отслеживайте статус вашей покупки в разделе <b>📦 Мои заказы</b>.\n"
             "5️⃣ Используйте <b>🔨 PWN Compiler</b> для быстрой компиляции `.pwn` в `.amx` файлы прямо в Telegram!\n\n"
             f"По всем вопросам: {OWNER_USERNAME}"
@@ -539,7 +553,7 @@ def callback_router(call: types.CallbackQuery):
         items_map = {
             "buy_forum": ("🌐 Готовый Форум", "Black Russia, Gold Russia, Live Russia, Матрёшка, Суровая Россия, Amazing, CRMP-ONLINE, Rage", "50 ⭐", "40 ₽"),
             "buy_site": ("🌍 Готовый Сайт", "Copy Black Russia (old), King Russia, Online Russia, Rage Russia", "50 ⭐", "38 ₽"),
-            "buy_other": ("⚙️ Прочие услуги", "Ваш стиль на форум, Установка мода на сервер, Создание/Подключение лаунчера", "50 ⭐", "40 ₽")
+            "buy_other": ("⚙️ Лаунчер / Установка мода / Стиль", "Ваш стиль на форум, Установка мода на сервер, Создание/Подключение лаунчера", "50 ⭐", "40 ₽")
         }
         title, desc, price_stars, price_rub = items_map[data]
         msg = (
@@ -580,18 +594,36 @@ def callback_router(call: types.CallbackQuery):
         
         bot.answer_callback_query(call.id, "Оформление заказа...")
         
-        # Свободная форма ввода без строгих "Раз, Два, Три"
+        # Точное разделение в зависимости от типа товара
         if "site" in order_details or "forum" in order_details:
             prompt_text = (
                 "🌐 <b>Заполнение заявки (Сайт / Форум):</b>\n\n"
-                "Отправьте ответным сообщением <b>название вашего проекта</b> (или какая копия Black Russia):\n\n"
-                "<i>Пример: Prince Russia</i>"
+                "Отправьте ответным сообщением <b>только название проекта</b>:\n\n"
+                "<i>Пример:\nPrince Russia</i>"
+            )
+        elif "other" in order_details:
+            prompt_text = (
+                "⚙️ <b>Заполнение заявки (Лаунчер / Прочее):</b>\n\n"
+                "Отправьте данные ответным сообщением:\n"
+                "• <b>Название лаунчера</b>\n"
+                "• <b>Название сервера</b>\n\n"
+                "<i>Пример:\nНазвание лаунчера: Prince Launcher\nСервер: Mobile 01</i>"
             )
         else:
             prompt_text = (
                 "✏️ <b>Оформление заявки на игровой мод:</b>\n\n"
-                "Отправьте данные <b>в свободной форме</b> (опишите сервер, название проекта / какая копия Black Russia, верты, донат и т.д.):\n\n"
-                "<i>Пример:\nСервер Mobile 01, копия Black Russia, бонус 5кк, донат 50к, мой тг @evgen, сайт site.ru</i>"
+                "Отправьте данные заказа (можно по пунктам или своими словами), чтобы админы сразу видели, что настраивать:\n\n"
+                "📌 <b>Обякательно укажите:</b>\n"
+                "• <b>Название сервера</b>\n"
+                "• <b>Название Проекта</b> (какая копия Black Russia)\n"
+                "• <b>Количество бонусных вертов</b>\n"
+                "• <b>Донат</b>\n"
+                "• <b>ТГК</b>\n"
+                "• <b>ВК</b>\n"
+                "• <b>Сайт</b>\n"
+                "• <b>ВИП</b>\n"
+                "• <b>Изначальный лвл</b>\n\n"
+                "<i>Пример:\nНазвание сервера: Mobile 01\nПроект: Black Russia Mobile\nВерты: 5000000\nДонат: 50000\nТГК: @tlg\nВК: vk.com/...\nСайт: site.ru\nВИП: Gold\nЛвл: 3</i>"
             )
 
         msg = bot.send_message(call.message.chat.id, prompt_text)
@@ -877,7 +909,7 @@ def process_order_comment(m: types.Message):
             f"🎉 <b>Ваш Заказ #{order_id} ({item_title}) успешно ОДОБРЕН!</b>\n\n"
             f"📌 <b>Статус:</b> <code>✅ Одобрено</code>\n"
             f"📝 <b>Комментарий от администрации:</b>\n<i>{comment_text}</i>\n\n"
-            f"💬 Скоро администрация ({OWNER_USERNAME}) передаст вам готовые файлы!"
+            f"💬 Скоро администрация ({OWNER_USERNAME} или {CO_OWNER_USERNAME}) передаст вам готовые файлы!"
         )
     else:
         status_str = f"❌ Отклонено (Причина: {comment_text})"
@@ -923,8 +955,8 @@ def process_order_final(m: types.Message):
         "stars_gen_buy_site": ("Готовый Сайт", 50, "Stars"),
         "rub_gen_buy_site": ("Готовый Сайт", 38, "₽"),
         
-        "stars_gen_buy_other": ("Услуга / Лаунчер / Стиль", 50, "Stars"),
-        "rub_gen_buy_other": ("Услуга / Лаунчер / Стиль", 40, "₽"),
+        "stars_gen_buy_other": ("Лаунчер / Установка мода / Стиль", 50, "Stars"),
+        "rub_gen_buy_other": ("Лаунчер / Установка мода / Стиль", 40, "₽"),
     }
     
     item_title, orig_price, currency = order_info_map.get(order_code, ("Товар из магазина", 0, "₽"))
@@ -954,7 +986,7 @@ def process_order_final(m: types.Message):
         f"💰 <b>К оплате:</b> {price_str}\n"
         f"📌 <b>Статус:</b> <code>{initial_status}</code>\n\n"
         f"💳 <b>Оплата происходит строго ВПЕРЁД!</b>\n"
-        f"📩 Вам скоро лично напишет создатель: <b>{OWNER_USERNAME}</b>.\n\n"
+        f"📩 По поводу оплаты проекта вам напишет: <b>{OWNER_USERNAME}</b> или <b>{CO_OWNER_USERNAME}</b>.\n\n"
         f"📋 <b>Ваша заявка:</b>\n{details_text}\n\n"
         f"<i>Отслеживайте статус в разделе «📦 Мои заказы»!</i>",
         reply_markup=menu(uid)
