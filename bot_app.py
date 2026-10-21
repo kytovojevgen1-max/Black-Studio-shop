@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-BLACK STUDIO bot — Absolute Production God Mode 2026
-- Вставлен токен: 8889779796:AAGpopudNLm0SZhP-1SV3VKDhwyaOKIZ7F4
-- Жесткая изоляция хендлеров: /start, текстовые кнопки меню, инлайн-кнопки и callback-запросы.
-- Полная работоспособность всех разделов (Покупки, Заказы, Профиль, Компиляторы, Админка).
+BLACK STUDIO bot — Absolute Production God Mode 2026 (Fixed Menu & Fallback Routing)
 """
 import os
 import sqlite3
@@ -183,6 +180,7 @@ def head(emoji, title):
 @bot.message_handler(commands=["start"])
 def start_cmd(m: types.Message):
     u = m.from_user
+    user_temp_mode.pop(u.id, None)
     args = m.text.split()
     uname = f"@{u.username}" if u.username else ""
     user_data = get_user(u.id, u.first_name, uname)
@@ -235,6 +233,7 @@ def start_cmd(m: types.Message):
 @bot.message_handler(func=lambda m: m.text == "👤 Мой профиль")
 def profile_handler(m: types.Message):
     uid = m.from_user.id
+    user_temp_mode.pop(uid, None)
     uname = f"@{m.from_user.username}" if m.from_user.username else ""
     user_data = get_user(uid, m.from_user.first_name, uname)
     balance, comp_limit, banned, active_discount, active_promo_code, admin_flag, admin_role = user_data[1:8]
@@ -267,6 +266,7 @@ def profile_handler(m: types.Message):
 @bot.message_handler(func=lambda m: m.text == "📦 Мои заказы")
 def orders_handler(m: types.Message):
     uid = m.from_user.id
+    user_temp_mode.pop(uid, None)
     cursor.execute("SELECT id, item_title, price_str, status, created_at FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 10", (uid,))
     orders_list = cursor.fetchall()
     if not orders_list:
@@ -281,6 +281,7 @@ def orders_handler(m: types.Message):
 @bot.message_handler(func=lambda m: m.text in ("🛍 Покупки", "🛍 Магазин (Buy list)"))
 def shop_handler(m: types.Message):
     uid = m.from_user.id
+    user_temp_mode.pop(uid, None)
     u_data = get_user(uid, m.from_user.first_name)
     active_discount, active_promo_code = u_data[5], u_data[6]
     disc_text = f"\n🔥 <i>У вас активирован промокод на скидку {active_discount}% ({active_promo_code})! Скидка применится к следующему заказу.</i>" if active_discount > 0 else ""
@@ -315,6 +316,7 @@ def pwn_menu_handler(m: types.Message):
 @bot.message_handler(func=lambda m: m.text == "⚙️ JNI Compiler")
 def jni_menu_handler(m: types.Message):
     uid = m.from_user.id
+    user_temp_mode.pop(uid, None)
     msg = (
         head("⚙️", "JNI Compiler · NDK & Architecture") +
         "Выберите версию Android NDK для сборки вашего JNI проекта:\n\n"
@@ -332,12 +334,15 @@ def jni_menu_handler(m: types.Message):
 
 @bot.message_handler(func=lambda m: m.text == "🎁 Промокод")
 def promo_menu_handler(m: types.Message):
+    uid = m.from_user.id
+    user_temp_mode.pop(uid, None)
     msg = bot.send_message(m.chat.id, "🎁 Введите ваш промокод на скидку в ответном сообщении:")
     bot.register_next_step_handler(msg, process_promo)
 
 @bot.message_handler(func=lambda m: m.text == "👥 Пригласить друзей")
 def invite_menu_handler(m: types.Message):
     uid = m.from_user.id
+    user_temp_mode.pop(uid, None)
     bot_info = bot.get_me()
     ref_link = f"https://t.me/{bot_info.username}?start={uid}"
     cursor.execute("SELECT COUNT(*) FROM users WHERE ref_by = ?", (uid,))
@@ -353,6 +358,8 @@ def invite_menu_handler(m: types.Message):
 
 @bot.message_handler(func=lambda m: m.text == "⚙️ Поддержка")
 def support_menu_handler(m: types.Message):
+    uid = m.from_user.id
+    user_temp_mode.pop(uid, None)
     msg = (
         head("⚙️", "Связь и поддержка") +
         f"💬 <b>Отзывы:</b> {REVIEWS_URL}\n"
@@ -365,6 +372,8 @@ def support_menu_handler(m: types.Message):
 
 @bot.message_handler(func=lambda m: m.text == "❓ Как пользоваться")
 def how_to_menu_handler(m: types.Message):
+    uid = m.from_user.id
+    user_temp_mode.pop(uid, None)
     msg = (
         head("❓", "Инструкция по использованию") +
         "1️⃣ Перейдите в раздел <b>🛍 Покупки</b>, выберите нужный товар или мод.\n"
@@ -379,6 +388,7 @@ def how_to_menu_handler(m: types.Message):
 @bot.message_handler(func=lambda m: m.text == "🛠 Админ-панель")
 def admin_panel_handler(m: types.Message):
     uid = m.from_user.id
+    user_temp_mode.pop(uid, None)
     if not is_admin(uid):
         return
     role = get_admin_role(uid)
@@ -444,6 +454,36 @@ def admin_panel_handler(m: types.Message):
 def text_fallback_router(m: types.Message):
     uid = m.from_user.id
     text = m.text
+    
+    # Защита: если отправлена любая кнопка меню, но хендлер выше почему-то пропустил - перенаправляем в меню
+    menu_buttons = [
+        "🛍 Покупки", "🛍 Магазин (Buy list)", "📦 Мои заказы", "👤 Мой профиль", 
+        "🔨 PWN Compiler", "⚙️ JNI Compiler", "🎁 Промокод", "👥 Пригласить друзей", 
+        "⚙️ Поддержка", "❓ Как пользоваться", "🛠 Админ-панель"
+    ]
+    if text in menu_buttons:
+        user_temp_mode.pop(uid, None)
+        if text in ("🛍 Покупки", "🛍 Магазин (Buy list)"):
+            return shop_handler(m)
+        elif text == "📦 Мои заказы":
+            return orders_handler(m)
+        elif text == "👤 Мой профиль":
+            return profile_handler(m)
+        elif text == "🔨 PWN Compiler":
+            return pwn_menu_handler(m)
+        elif text == "⚙️ JNI Compiler":
+            return jni_menu_handler(m)
+        elif text == "🎁 Промокод":
+            return promo_menu_handler(m)
+        elif text == "👥 Пригласить друзей":
+            return invite_menu_handler(m)
+        elif text == "⚙️ Поддержка":
+            return support_menu_handler(m)
+        elif text == "❓ Как пользоваться":
+            return how_to_menu_handler(m)
+        elif text == "🛠 Админ-панель":
+            return admin_panel_handler(m)
+
     uname = f"@{m.from_user.username}" if m.from_user.username else ""
     user_data = get_user(uid, m.from_user.first_name, uname)
     if user_data[4]:
