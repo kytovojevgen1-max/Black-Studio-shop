@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-BLACK STUDIO bot — Production Edition (telebot)
+BLACK STUDIO bot — Order System Edition (telebot)
 pip install -r requirements.txt
 python bot_app.py
 """
@@ -10,7 +10,6 @@ import datetime
 import logging
 from telebot import TeleBot, types
 
-# ====================== CONFIG ======================
 BOT_TOKEN = "8889779796:AAHlwmV3T6KB0_zi13UrRopG-XkI6zWlW_A"
 ADMIN_ID = 8543358373
 OWNER_USERNAME = "@Evgenn010"
@@ -19,12 +18,10 @@ REVIEWS_URL = "https://t.me/BlackSTUDIOotziv"
 BOT_NAME = "BLACK STUDIO"
 
 LINE = "▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
-# ====================================================
 
 logging.basicConfig(level=logging.INFO)
 bot = TeleBot(BOT_TOKEN, parse_mode="HTML")
 
-# --- DATABASE SETUP ---
 db = sqlite3.connect("nexus.db", check_same_thread=False)
 cursor = db.cursor()
 
@@ -51,6 +48,16 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS used_promo (
     user_id INTEGER,
     code TEXT
+)
+""")
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS orders (
+    order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    ndk_version TEXT,
+    file_id TEXT,
+    file_name TEXT,
+    status TEXT DEFAULT 'pending'
 )
 """)
 db.commit()
@@ -83,7 +90,7 @@ def menu(uid):
         types.KeyboardButton("👤 Мой профиль"),
         types.KeyboardButton("🛍 Магазин (Buy list)"),
         types.KeyboardButton("🔨 PWN Compiler"),
-        types.KeyboardButton("⚙️ JNI Compiler"),
+        types.KeyboardButton("⚙️ JNI Compiler (Заказ на сборку)"),
         types.KeyboardButton("🎁 Промокод"),
         types.KeyboardButton("👥 Пригласить друзей"),
         types.KeyboardButton("⚙️ Поддержка"),
@@ -124,7 +131,7 @@ def start_cmd(m: types.Message):
         head("🖐", f"Добро пожаловать в {BOT_NAME}!") +
         "Лучшая студия скриптинга, разработки и игровых сборок.\n\n"
         "▫️ Ежедневный лимит бесплатных компиляций: <b>30 раз в день</b>.\n"
-        "▫️ Выбирайте нужный компилятор в меню ниже 👇"
+        "▫️ Выбирайте нужный инструмент в меню ниже 👇"
     )
     bot.send_message(m.chat.id, text, reply_markup=menu(u.id))
 
@@ -182,10 +189,10 @@ def main_router(m: types.Message):
         )
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
 
-    elif text == "⚙️ JNI Compiler":
+    elif text == "⚙️ JNI Compiler (Заказ на сборку)":
         msg = (
-            head("⚙️", "JNI Compiler · Выбор NDK") +
-            "Выберите версию Android NDK для сборки вашего JNI-проекта:\n\n"
+            head("⚙️", "JNI Compiler · Заказ на сборку") +
+            "Выберите версию Android NDK для профессиональной сборки вашего проекта:\n\n"
             "🟢 <b>r25c</b> — современные проекты, актуальные Google Play и CRMP\n"
             "🟡 <b>r21e</b> — совместимый средний вариант\n"
             "🔴 <b>r16b</b> — старые JNI-проекты"
@@ -225,8 +232,8 @@ def main_router(m: types.Message):
         msg = (
             head("❓", "Инструкция по использованию") +
             "1️⃣ Нажмите <b>🔨 PWN Compiler</b> для компиляции `.pwn` скриптов.\n"
-            "2️⃣ Нажмите <b>⚙️ JNI Compiler</b>, выберите NDK и отправьте `.jni` или архив `.zip` / `.rar`.\n"
-            "3️⃣ Получайте готовый результат за пару секунд в рамках лимита (30 раз в день).\n\n"
+            "2️⃣ Нажмите <b>⚙️ JNI Compiler</b>, выберите NDK и отправьте архив с исходниками.\n"
+            "3️⃣ Ваш проект уйдет на ручную сборку к владельцу, и вы получите готовую сборку в чат!\n\n"
             f"По всем вопросам: {OWNER_USERNAME}"
         )
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
@@ -258,7 +265,7 @@ def callback_router(call: types.CallbackQuery):
     uid = call.from_user.id
     data = call.data
 
-    if data in ("ndk_r25c", "ndk_r21e", "ndk_r16b"):
+    if data.startswith("ndk_"):
         ndk_version = data.replace("ndk_", "").upper()
         user_temp_mode[uid] = f"JNI_{ndk_version}"
         bot.answer_callback_query(call.id, f"Выбрана NDK: {ndk_version}")
@@ -266,8 +273,17 @@ def callback_router(call: types.CallbackQuery):
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=head("⚙️", f"JNI Compiler (NDK: {ndk_version})") +
-                 "📤 Теперь отправьте ваш архив <code>.zip</code> / <code>.rar</code> или файл <code>.jni</code> сюда в чат документом!"
+                 "📤 Отправьте архив с вашими исходниками (<code>.zip</code> / <code>.rar</code>) сюда в чат документом — заказ сразу уйдет на сборку!"
         )
+        return
+
+    if data.startswith("reply_order_"):
+        if not is_admin(uid):
+            return
+        target_user_id = int(data.replace("reply_order_", ""))
+        msg = bot.send_message(call.message.chat.id, f"📦 Отправьте готовый файл (.so или архив) в ответ на это сообщение для пользователя <code>{target_user_id}</code>:")
+        bot.register_next_step_handler(msg, lambda m: send_built_file_to_user(m, target_user_id))
+        bot.answer_callback_query(call.id)
         return
 
     if not is_admin(uid):
@@ -365,46 +381,78 @@ def process_compilation(m: types.Message):
         if not fname.endswith(".pwn"):
             bot.send_message(m.chat.id, "❌ Вы выбрали <b>PWN Compiler</b>. Отправьте файл с расширением <code>.pwn</code>.", reply_markup=menu(uid))
             return
-    else:
-        allowed_jni = (".jni", ".zip", ".rar", ".tar", ".gz", ".7z")
-        if not fname.endswith(allowed_jni):
-            bot.send_message(m.chat.id, "❌ Вы выбрали <b>JNI Compiler</b>. Отправьте архив <code>.zip</code> / <code>.rar</code> или файл <code>.jni</code>.", reply_markup=menu(uid))
+            
+        if limit <= 0:
+            bot.send_message(m.chat.id, "❌ <b>Лимит исчерпан!</b>\nУ вас закончились бесплатные попытки на сегодня (обновление в 00:00 МСК).", reply_markup=menu(uid))
             return
 
-    if limit <= 0:
-        bot.send_message(m.chat.id, "❌ <b>Лимит исчерпан!</b>\nУ вас закончились бесплатные попытки на сегодня (обновление в 00:00 МСК).", reply_markup=menu(uid))
+        cursor.execute("UPDATE users SET comp_limit = comp_limit - 1 WHERE id = ?", (uid,))
+        db.commit()
+
+        sent_msg = bot.send_message(
+            m.chat.id, 
+            f"⚙️ <b>PWN Compiler</b>\n📁 Файл: <code>{m.document.file_name}</code>\n🔄 <i>Компиляция Pawn скрипта...</i>"
+        )
+        
+        import time
+        time.sleep(2)
+        
+        bot.edit_message_text(
+            chat_id=m.chat.id,
+            message_id=sent_msg.message_id,
+            text=f"✅ <b>Компиляция успешно завершена!</b>\n\n📁 Исходник: <code>{m.document.file_name}</code>\n📉 Осталось попыток: <b>{limit - 1} / 30</b>"
+        )
+        try:
+            bot.send_document(m.chat.id, m.document.file_id, caption=f"📦 Готовый файл от {BOT_NAME}", reply_markup=menu(uid))
+        except:
+            pass
+    else:
+        # JNI Order mode
+        ndk_ver = mode.replace("JNI_", "")
+        cursor.execute("INSERT INTO orders (user_id, ndk_version, file_id, file_name) VALUES (?, ?, ?, ?)", (uid, ndk_ver, m.document.file_id, m.document.file_name))
+        db.commit()
+        
+        bot.send_message(
+            m.chat.id,
+            f"✅ <b>Заказ на сборку JNI принят!</b>\n\n"
+            f"📌 Версия NDK: <b>{ndk_ver}</b>\n"
+            f"📁 Файл: <code>{m.document.file_name}</code>\n\n"
+            f"<i>Заказ отправлен владельцу студии. Как только сборка будет готова, вы получите файл прямо сюда!</i>",
+            reply_markup=menu(uid)
+        )
+        
+        try:
+            admin_markup = types.InlineKeyboardMarkup()
+            admin_markup.add(types.InlineKeyboardButton("📤 Отправить готовую сборку", callback_data=f"reply_order_{uid}"))
+            
+            bot.send_document(
+                ADMIN_ID,
+                m.document.file_id,
+                caption=f"🔔 <b>Новый заказ на JNI сборку!</b>\n\n"
+                        f"👤 От: {m.from_user.full_name} (ID: <code>{uid}</code>)\n"
+                        f"🔗 Юзернейм: @{m.from_user.username or 'отсутствует'}\n"
+                        f"⚙️ NDK: <b>{ndk_ver}</b>\n"
+                        f"📁 Файл: <code>{m.document.file_name}</code>",
+                reply_markup=admin_markup
+            )
+        except Exception as e:
+            logging.error(f"Failed to notify admin: {e}")
+
+def send_built_file_to_user(m: types.Message, target_user_id: int):
+    if not m.document:
+        bot.send_message(m.chat.id, "❌ Ошибка: прикрепите готовый файл документом.")
         return
-
-    cursor.execute("UPDATE users SET comp_limit = comp_limit - 1 WHERE id = ?", (uid,))
-    db.commit()
-
-    compiler_name = "PWN Compiler" if mode == "PWN" else f"JNI Compiler ({mode.replace('JNI_', 'NDK ')})"
-
-    sent_msg = bot.send_message(
-        m.chat.id, 
-        f"⚙️ <b>{compiler_name}</b>\n"
-        f"📁 Файл: <code>{m.document.file_name}</code>\n"
-        f"🔄 <i>Шаг 1/3: Анализ синтаксиса и структуры...</i>"
-    )
-    
-    import time
-    time.sleep(1)
-    bot.edit_message_text(chat_id=m.chat.id, message_id=sent_msg.message_id, text=f"⚙️ <b>{compiler_name}</b>\n📁 Файл: <code>{m.document.file_name}</code>\n🔄 <i>Шаг 2/3: Компиляция через серверные модули...</i>")
-    time.sleep(1.5)
-    
-    bot.edit_message_text(
-        chat_id=m.chat.id,
-        message_id=sent_msg.message_id,
-        text=f"✅ <b>Компиляция успешно завершена!</b>\n\n"
-             f"🛠 Режим: <b>{compiler_name}</b>\n"
-             f"📁 Исходник: <code>{m.document.file_name}</code>\n"
-             f"📉 Осталось попыток на сегодня: <b>{limit - 1} / 30</b>"
-    )
-    
     try:
-        bot.send_document(m.chat.id, m.document.file_id, caption=f"📦 Готовый скомпилированный файл от {BOT_NAME}", reply_markup=menu(uid))
-    except:
-        pass
+        bot.send_document(
+            target_user_id,
+            m.document.file_id,
+            caption=f"📦 <b>Ваш JNI проект успешно собран студией {BOT_NAME}!</b>\n"
+                    f"👑 Владелец: {OWNER_USERNAME}\n"
+                    f"💬 Отзывы: {REVIEWS_URL}"
+        )
+        bot.send_message(m.chat.id, f"✅ Готовый файл успешно отправлен пользователю <code>{target_user_id}</code>!")
+    except Exception as e:
+        bot.send_message(m.chat.id, f"❌ Не удалось отправить файл пользователю: {e}")
 
 def save_new_promo(m: types.Message):
     try:
@@ -521,5 +569,5 @@ def process_promo(m: types.Message):
     bot.send_message(m.chat.id, f"✅ Промокод успешно активирован!\n🔥 Ваша скидка: <b>{discount}%</b> у владельца {OWNER_USERNAME}", reply_markup=menu(uid))
 
 if __name__ == "__main__":
-    print("BLACK STUDIO bot (Production Edition) успешно запущен!")
+    print("BLACK STUDIO bot (Order System Edition) успешно запущен!")
     bot.infinity_polling()
