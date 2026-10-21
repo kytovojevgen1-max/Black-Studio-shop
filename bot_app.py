@@ -8,7 +8,6 @@ import os
 import sqlite3
 import datetime
 import logging
-import time
 from telebot import TeleBot, types
 
 # ====================== CONFIG ======================
@@ -388,6 +387,7 @@ def process_compilation(m: types.Message):
         f"🔄 <i>Шаг 1/3: Анализ синтаксиса и структуры...</i>"
     )
     
+    import time
     time.sleep(1)
     bot.edit_message_text(chat_id=m.chat.id, message_id=sent_msg.message_id, text=f"⚙️ <b>{compiler_name}</b>\n📁 Файл: <code>{m.document.file_name}</code>\n🔄 <i>Шаг 2/3: Компиляция через серверные модули...</i>")
     time.sleep(1.5)
@@ -522,4 +522,4 @@ def process_promo(m: types.Message):
 
 if __name__ == "__main__":
     print("BLACK STUDIO bot (Production Edition) успешно запущен!")
-    bot.infinity_polling(skip_pendings=True)
+    bot.infinity_polling()
