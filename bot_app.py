@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-BLACK STUDIO bot — Ultimate Admin & Single-Use Promo Edition (telebot)
+BLACK STUDIO bot — Ultimate Premium Order Management & Live Web Keep-Alive (Flask + Telebot)
 pip install -r requirements.txt
 python bot_app.py
 """
@@ -11,6 +11,8 @@ import logging
 import shutil
 import subprocess
 import zipfile
+import threading
+from flask import Flask
 from telebot import TeleBot, types
 
 BOT_TOKEN = "8889779796:AAHlwmV3T6KB0_zi13UrRopG-XkI6zWlW_A"
@@ -25,6 +27,22 @@ LINE = "▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
 logging.basicConfig(level=logging.INFO)
 bot = TeleBot(BOT_TOKEN, parse_mode="HTML")
 
+# Flask Web Server to keep Render HTTP Service 100% ONLINE for UptimeRobot
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return f"🚀 {BOT_NAME} Bot is Online and Running Smoothly!"
+
+@app.route('/health')
+def health():
+    return "OK", 200
+
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
+# Database Setup
 db = sqlite3.connect("nexus.db", check_same_thread=False)
 cursor = db.cursor()
 
@@ -42,6 +60,19 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin INTEGER DEFAULT 0
 )
 """)
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    item_title TEXT,
+    price_str TEXT,
+    details_text TEXT,
+    status TEXT DEFAULT '⏳ На рассмотрении',
+    created_at TEXT
+)
+""")
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS promo (
     code TEXT PRIMARY KEY,
@@ -50,6 +81,7 @@ CREATE TABLE IF NOT EXISTS promo (
     used_count INTEGER DEFAULT 0
 )
 """)
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS used_promo (
     user_id INTEGER,
@@ -60,6 +92,7 @@ db.commit()
 
 user_temp_mode = {}
 user_order_step = {}
+admin_action_step = {}
 
 def get_user(uid, name="User"):
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
@@ -95,6 +128,7 @@ def menu(uid):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
         types.KeyboardButton("🛍 Покупки"),
+        types.KeyboardButton("📦 Мои заказы"),
         types.KeyboardButton("👤 Мой профиль"),
         types.KeyboardButton("🔨 PWN Compiler"),
         types.KeyboardButton("⚙️ JNI Compiler"),
@@ -136,7 +170,7 @@ def start_cmd(m: types.Message):
 
     text = (
         head("🖐", f"Добро пожаловать в {BOT_NAME}!") +
-        "Лучшая студия скриптинга, разработки и игровых сборок.\n\n"
+        "⚡️ <b>Премиальный сервис по CRMP/SA-MP разработке!</b>\n\n"
         "▫️ Ежедневный лимит бесплатных компиляций: <b>30 раз в день</b>.\n"
         "▫️ Выбирайте нужный раздел в меню ниже 👇"
     )
@@ -181,6 +215,18 @@ def main_router(m: types.Message):
             f"{promo_info}\n\n"
             "<i>Лимит компиляций обновляется каждый день в 00:00 по МСК.</i>"
         )
+        bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
+
+    elif text == "📦 Мои заказы":
+        cursor.execute("SELECT id, item_title, price_str, status, created_at FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 10", (uid,))
+        orders_list = cursor.fetchall()
+        if not orders_list:
+            bot.send_message(m.chat.id, head("📦", "Ваши заказы") + "У вас пока нет оформленных заказов.", reply_markup=menu(uid))
+            return
+            
+        msg = head("📦", "История ваших заказов")
+        for o in orders_list:
+            msg += f"📑 <b>Заказ #{o[0]}</b> | {o[4]}\n🛍 <b>Товар:</b> {o[1]}\n💵 <b>Сумма:</b> {o[2]}\n📌 <b>Статус:</b> {o[3]}\n{LINE}\n"
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
 
     elif text in ("🛍 Покупки", "🛍 Магазин (Buy list)"):
@@ -255,8 +301,9 @@ def main_router(m: types.Message):
             head("❓", "Инструкция по использованию") +
             "1️⃣ Перейдите в раздел <b>🛍 Покупки</b>, выберите нужный товар или мод.\n"
             "2️⃣ При заказе мода отправьте 1 сообщением все настройки сервера.\n"
-            "3️⃣ Активируйте промокод в разделе <b>🎁 Промокод</b> для получения скидки на 1 заказ.\n"
-            "4️⃣ Компилируйте `.pwn` и JNI `.so` файлы прямо через бота.\n\n"
+            "3️⃣ Заказ автоматически получит статус <b>⏳ На рассмотрении</b>.\n"
+            "4️⃣ Администратор сможет перевести заказ в <b>⚙️ В процессе</b>, <b>✅ Одобрено</b> или <b>❌ Отклонено</b> с причиной!\n"
+            "5️⃣ Отслеживайте статус в разделе <b>📦 Мои заказы</b>.\n\n"
             f"По всем вопросам: {OWNER_USERNAME}"
         )
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
@@ -460,6 +507,47 @@ def callback_router(call: types.CallbackQuery):
         bot.register_next_step_handler(msg, process_order_final)
         return
 
+    # Admin Order Management System (Status Updates)
+    if data.startswith("ord_inprog_") or data.startswith("ord_approve_") or data.startswith("ord_reject_"):
+        if not is_admin(uid):
+            bot.answer_callback_query(call.id, "❌ Нет прав доступа.", show_alert=True)
+            return
+
+        action, order_id_str = data.rsplit("_", 1)
+        order_id = int(order_id_str)
+
+        cursor.execute("SELECT user_id, item_title FROM orders WHERE id = ?", (order_id,))
+        ord_data = cursor.fetchone()
+        if not ord_data:
+            bot.answer_callback_query(call.id, "❌ Заказ не найден.", show_alert=True)
+            return
+
+        client_uid, item_title = ord_data
+
+        if action == "ord_inprog":
+            cursor.execute("UPDATE orders SET status = '⚙️ В процессе' WHERE id = ?", (order_id,))
+            db.commit()
+            bot.answer_callback_query(call.id, "✅ Статус заказа изменен на: В процессе!")
+            bot.send_message(
+                client_uid,
+                f"⚙️ <b>Ваш Заказ #{order_id} ({item_title}) принят в работу!</b>\n\n"
+                f"📌 <b>Текущий статус:</b> <code>⚙️ В процессе</code>\n"
+                f"💬 Администратор приступил к вашей заявке."
+            )
+            return
+
+        elif action == "ord_approve":
+            admin_action_step[uid] = ("approve", order_id, client_uid, item_title)
+            msg = bot.send_message(call.message.chat.id, f"✅ <b>Впишите причину/комментарий для ОДОБРЕНИЯ Заказа #{order_id}:</b>")
+            bot.register_next_step_handler(msg, process_order_comment)
+            return
+
+        elif action == "ord_reject":
+            admin_action_step[uid] = ("reject", order_id, client_uid, item_title)
+            msg = bot.send_message(call.message.chat.id, f"❌ <b>Впишите причину ОТКЛОНЕНИЯ Заказа #{order_id}:</b>")
+            bot.register_next_step_handler(msg, process_order_comment)
+            return
+
     if data.startswith("ndk_"):
         ndk_version = data.replace("ndk_", "").upper()
         user_temp_mode[uid] = f"JNI_{ndk_version}"
@@ -484,14 +572,17 @@ def callback_router(call: types.CallbackQuery):
         total_bal = cursor.fetchone()[0] or 0
         cursor.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1")
         total_admins = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM orders")
+        total_orders = cursor.fetchone()[0]
         
         msg = (
             head("📊", "Статистика бота") +
             f"👥 Всего пользователей: <b>{total_users}</b>\n"
             f"👑 Всего администраторов: <b>{total_admins}</b>\n"
+            f"🛍 Всего заказов: <b>{total_orders}</b>\n"
             f"🎁 Активных промокодов: <b>{total_promos}</b>\n"
-            f"💰 Общий баланс баллов у всех: <b>{total_bal}</b>\n"
-            f"🟢 Статус сервера: <b>Работает отлично (Render)</b>"
+            f"💰 Общий баланс баллов: <b>{total_bal}</b>\n"
+            f"🟢 Статус сервера: <b>Работает 24/7 (Render + Flask Uptime)</b>"
         )
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, msg)
@@ -558,12 +649,45 @@ def callback_router(call: types.CallbackQuery):
         db.commit()
         bot.answer_callback_query(call.id, "🗑 Вся база промокодов полностью очищена!", show_alert=True)
 
+def process_order_comment(m: types.Message):
+    uid = m.from_user.id
+    if uid not in admin_action_step:
+        return
+
+    act_type, order_id, client_uid, item_title = admin_action_step[uid]
+    comment_text = m.text.strip()
+    del admin_action_step[uid]
+
+    if act_type == "approve":
+        status_str = "✅ Одобрено"
+        cursor.execute("UPDATE orders SET status = ? WHERE id = ?", (status_str, order_id))
+        db.commit()
+        
+        bot.send_message(m.chat.id, f"✅ Заказ #{order_id} переведен в статус <b>Одобрено</b>!")
+        bot.send_message(
+            client_uid,
+            f"🎉 <b>Ваш Заказ #{order_id} ({item_title}) успешно ОДОБРЕН!</b>\n\n"
+            f"📌 <b>Статус:</b> <code>✅ Одобрено</code>\n"
+            f"📝 <b>Комментарий администратора:</b>\n<i>{comment_text}</i>"
+        )
+    else:
+        status_str = f"❌ Отклонено (Причина: {comment_text})"
+        cursor.execute("UPDATE orders SET status = ? WHERE id = ?", (status_str, order_id))
+        db.commit()
+
+        bot.send_message(m.chat.id, f"❌ Заказ #{order_id} переведен в статус <b>Отклонено</b>!")
+        bot.send_message(
+            client_uid,
+            f"❌ <b>Ваш Заказ #{order_id} ({item_title}) был ОТКЛОНЕН.</b>\n\n"
+            f"📌 <b>Статус:</b> <code>❌ Отклонено</code>\n"
+            f"⚠️ <b>Причина отклонения:</b>\n<i>{comment_text}</i>"
+        )
+
 def process_order_final(m: types.Message):
     uid = m.from_user.id
     order_code = user_order_step.get(uid, "unknown")
     details_text = m.text.strip()
     
-    # Get user discount details
     u_data = get_user(uid, m.from_user.first_name)
     active_discount, active_promo_code = u_data[4], u_data[5]
 
@@ -598,42 +722,57 @@ def process_order_final(m: types.Message):
     
     if active_discount > 0:
         final_price = int(orig_price * (100 - active_discount) / 100)
-        price_str = f"<s>{orig_price} {currency}</s> 🔥 <b>{final_price} {currency}</b> (СО СКИДКОЙ по промокоду <code>{active_promo_code}</code> -{active_discount}%)"
-        
-        # Burn discount right after applying to 1 order
+        price_str = f"<s>{orig_price} {currency}</s> 🔥 <b>{final_price} {currency}</b> (-{active_discount}%)"
         cursor.execute("UPDATE users SET active_discount = 0, active_promo_code = '' WHERE id = ?", (uid,))
         db.commit()
     else:
         price_str = f"<b>{orig_price} {currency}</b>"
 
+    created_at = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M MSK")
+    initial_status = "⏳ На рассмотрении"
+
+    cursor.execute(
+        "INSERT INTO orders (user_id, item_title, price_str, details_text, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (uid, item_title, price_str, details_text, initial_status, created_at)
+    )
+    db.commit()
+    order_id = cursor.lastrowid
+
     bot.send_message(
         m.chat.id,
-        f"✅ <b>Заказ успешно зарегистрирован!</b>\n\n"
+        f"✅ <b>Заказ #{order_id} успешно зарегистрирован!</b>\n\n"
         f"🛍 <b>Товар:</b> {item_title}\n"
-        f"💰 <b>К оплате:</b> {price_str}\n\n"
+        f"💰 <b>К оплате:</b> {price_str}\n"
+        f"📌 <b>Статус:</b> <code>{initial_status}</code>\n\n"
         f"📋 <b>Ваши данные настройки:</b>\n{details_text}\n\n"
-        f"📩 <i>Информация о вашем заказе отправлена администрации ({OWNER_USERNAME}). Скоро с вами свяжутся!</i>",
+        f"📩 <i>Информация отправлена администраторам ({OWNER_USERNAME}). Отслеживайте статус в разделе «📦 Мои заказы»!</i>",
         reply_markup=menu(uid)
     )
     
     try:
         username_str = f"@{m.from_user.username}" if m.from_user.username else "Отсутствует"
-        discount_alert = f"\n🏷 <b>ПРИМЕНЕНА СКИДКА:</b> {active_discount}% (Промокод: <code>{active_promo_code}</code> — сгорел после заказа)" if active_discount > 0 else ""
 
         admin_order_msg = (
-            f"🛒 <b>ПОСТУПИЛ НОВЫЙ ЗАКАЗ ИЗ МАГАЗИНА!</b>\n"
+            f"🛒 <b>ПОСТУПИЛ НОВЫЙ ЗАКАЗ #{order_id}!</b>\n"
             f"{LINE}\n"
             f"👤 <b>Ник:</b> {m.from_user.full_name}\n"
             f"🔗 <b>Юзернейм:</b> {username_str}\n"
             f"🆔 <b>Айди аккаунта:</b> <code>{uid}</code>\n\n"
             f"🛍 <b>Что хочет купить:</b> {item_title}\n"
-            f"💵 <b>Сколько стоит:</b> {price_str}{discount_alert}\n\n"
+            f"💵 <b>Сколько стоит:</b> {price_str}\n"
+            f"📌 <b>Текущий статус:</b> <code>{initial_status}</code>\n\n"
             f"📋 <b>Настройки от клиента:</b>\n<code>{details_text}</code>\n"
-            f"{LINE}"
+            f"{LINE}\n"
+            f"👇 <b>Управление статусом заказа:</b>"
         )
         
-        reply_markup = types.InlineKeyboardMarkup()
-        reply_markup.add(types.InlineKeyboardButton("📨 Написать клиенту", url=f"tg://user?id={uid}"))
+        reply_markup = types.InlineKeyboardMarkup(row_width=1)
+        reply_markup.add(
+            types.InlineKeyboardButton("⚙️ В процессе", callback_data=f"ord_inprog_{order_id}"),
+            types.InlineKeyboardButton("✅ Одобрено (указать причину)", callback_data=f"ord_approve_{order_id}"),
+            types.InlineKeyboardButton("❌ Отклонено (указать причину)", callback_data=f"ord_reject_{order_id}"),
+            types.InlineKeyboardButton("📨 Написать клиенту в ЛС", url=f"tg://user?id={uid}")
+        )
         
         bot.send_message(PRIMARY_ADMIN_ID, admin_order_msg, reply_markup=reply_markup)
     except Exception as e:
@@ -925,5 +1064,12 @@ def process_promo(m: types.Message):
     bot.send_message(m.chat.id, f"🎉 <b>Промокод {code} успешно активирован!</b>\n🔥 Вы получили скидку <b>{discount}%</b> на ваш <b>следующий 1 заказ</b> в магазине!", reply_markup=menu(uid))
 
 if __name__ == "__main__":
-    print("BLACK STUDIO bot (Ultimate Admin Edition) успешно запущен!")
+    print("BLACK STUDIO bot (Ultimate Premium Order Management) успешно запущен!")
+    
+    # Start Flask Web Server in a background thread for Render & UptimeRobot HTTP Monitor
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+
+    # Start Telegram Bot Polling
     bot.infinity_polling()
