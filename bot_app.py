@@ -12,7 +12,7 @@ import logging
 from telebot import TeleBot, types
 
 # ====================== CONFIG ======================
-BOT_TOKEN = "8889779796:AAGUeiGf_dL-GnBEpvKImysIEe1kNLCPpoU"
+BOT_TOKEN = "8889779796:AAHlwmV3T6KB0_zi13UrRopG-XkI6zWlW_A"
 ADMIN_ID = 8543358373                     # твой Telegram ID
 OWNER_USERNAME = "@Evgenn010"              # куда покупатели отправляют звёзды
 BOT_NAME = "BLACK STUDIO"
