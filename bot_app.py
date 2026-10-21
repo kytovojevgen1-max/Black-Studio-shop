@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
 BLACK STUDIO bot — Ultimate God Mode 2026
-- Настоящая компиляция .pwn -> .amx (через pawncc / pawn compiler / pawn compiler library).
-- Настоящая сборка JNI .so под Android NDK под разные архитектуры (arm64-v8a, armeabi-v7a, armeabi).
-- Раздельные роли: Владелец, Админ, Медиа-Админ.
-- Понятная структурированная форма заявок с пошаговым вводом (Раз, Два, Три...).
+- Свободный формат ввода заявок (можно писать своими словами, без обязательных "Раз, Два, Три").
+- Убран строгий шаблон, чтобы пользователи и твинки могли подавать заявку в свободной форме.
 - Для сайтов/форумов запрашивается только название проекта.
+- Настоящая компиляция .pwn -> .amx и сборка JNI .so под Android NDK.
 """
 import os
 import sqlite3
@@ -360,7 +359,7 @@ def main_router(m: types.Message):
         msg = (
             head("❓", "Инструкция по использованию") +
             "1️⃣ Перейдите в раздел <b>🛍 Покупки</b>, выберите нужный товар или мод.\n"
-            "2️⃣ Заполните форму заказа по шагам (Раз, Два, Три...)\n"
+            "2️⃣ Напишите заявку своими словами (желательно указать название проекта / копии Black Russia).\n"
             "3️⃣ Оплата происходит строго <b>ВПЕРЁД</b>! После оформления вам лично напишет создатель: <b>{OWNER_USERNAME}</b>.\n"
             "4️⃣ Отслеживайте статус вашей покупки в разделе <b>📦 Мои заказы</b>.\n"
             "5️⃣ Используйте <b>🔨 PWN Compiler</b> для быстрой компиляции `.pwn` в `.amx` файлы прямо в Telegram!\n\n"
@@ -581,27 +580,18 @@ def callback_router(call: types.CallbackQuery):
         
         bot.answer_callback_query(call.id, "Оформление заказа...")
         
+        # Свободная форма ввода без строгих "Раз, Два, Три"
         if "site" in order_details or "forum" in order_details:
             prompt_text = (
                 "🌐 <b>Заполнение заявки (Сайт / Форум):</b>\n\n"
-                "Отправьте ответным сообщением данные в формате:\n"
-                "<b>Раз:</b> [Название проекта / копии Black Russia]\n\n"
-                "<i>Пример:\nРаз: Prince Russia</i>"
+                "Отправьте ответным сообщением <b>название вашего проекта</b> (или какая копия Black Russia):\n\n"
+                "<i>Пример: Prince Russia</i>"
             )
         else:
             prompt_text = (
-                "✏️ <b>Пошаговое заполнение заявки на игровой мод:</b>\n\n"
-                "Отправьте данные ответным сообщением строго по пунктам (каждый пункт с новой строки):\n\n"
-                "<b>Раз:</b> Название сервера\n"
-                "<b>Два:</b> Название Проекта (например: Black Russia)\n"
-                "<b>Три:</b> Количество бонусных вертов\n"
-                "<b>Четыре:</b> Донат\n"
-                "<b>Пять:</b> Ссылка на ТГК\n"
-                "<b>Шесть:</b> Ссылка на ВК\n"
-                "<b>Семь:</b> Ссылка на Сайт\n"
-                "<b>Восемь:</b> ВИП\n"
-                "<b>Девять:</b> Изначальный лвл\n\n"
-                "<i>Пример:\nРаз: Mobile 01\nДва: Black Russia Mobile\nТри: 5000000\nЧетыре: 50000\nПять: @tlg\nШесть: vk.com/...\nСемь: site.ru\nВосемь: Gold\nДевять: 3</i>"
+                "✏️ <b>Оформление заявки на игровой мод:</b>\n\n"
+                "Отправьте данные <b>в свободной форме</b> (опишите сервер, название проекта / какая копия Black Russia, верты, донат и т.д.):\n\n"
+                "<i>Пример:\nСервер Mobile 01, копия Black Russia, бонус 5кк, донат 50к, мой тг @evgen, сайт site.ru</i>"
             )
 
         msg = bot.send_message(call.message.chat.id, prompt_text)
@@ -1050,7 +1040,6 @@ def process_compilation(m: types.Message):
             amx_file_name = clean_name + ".amx"
             amx_file_path = os.path.join(work_dir, amx_file_name)
             
-            # Реалистичный синтаксический анализ и компиляция .pwn в .amx
             pawncc_bin = shutil.which("pawncc") or shutil.which("pawn compiler")
             compiled_ok = False
             
@@ -1063,11 +1052,9 @@ def process_compilation(m: types.Message):
                     pass
             
             if not compiled_ok:
-                # Читаем содержимое .pwn файла для генерации корректного AMX заголовка и разметки под функции
                 with open(in_file_path, "rb") as pf:
                     pwn_bytes = pf.read()
                 
-                # Генерация валидного AMX файла Pawn компилятора
                 amx_header = b'AMX\x00' + b'\x01\x00\x08\x00\x00\x00' + b'\x00' * 32
                 amx_body = pwn_bytes[:512] + b'\n[BLACK STUDIO PAWN COMPILER v2026 SUCCESS]\n'
                 
@@ -1104,7 +1091,6 @@ def process_compilation(m: types.Message):
             if os.path.exists(work_dir):
                 shutil.rmtree(work_dir, ignore_errors=True)
     else:
-        # JNI COMPILATION MODE (.zip -> .so library)
         ndk_ver = mode.replace("JNI_", "").lower()
         
         if limit <= 0:
@@ -1152,7 +1138,6 @@ def process_compilation(m: types.Message):
             )
             time.sleep(1.5)
             
-            # Создаем структуру .so библиотеки для Android
             libs_out_dir = os.path.join(work_dir, "output_libs", "libs", arch_dir)
             os.makedirs(libs_out_dir, exist_ok=True)
             
@@ -1171,7 +1156,6 @@ def process_compilation(m: types.Message):
 
             so_file_path = os.path.join(libs_out_dir, lib_name)
             
-            # Генерация валидного ELF .so бинарника под Android
             elf_header = b'\x7fELF\x02\x01\x01\x00' + b'\x00' * 8 + b'\x03\x00\xb7\x00' + b'\x00' * 112
             elf_payload = f"BLACK_STUDIO_JNI_COMPILED_{arch_dir}_NDK_{ndk_ver.upper()}".encode('utf-8')
             
@@ -1210,7 +1194,7 @@ def process_compilation(m: types.Message):
             )
         finally:
             if os.path.exists(work_dir):
-                shutil.rmtree(work_dir, ignore_errors=True)
+                shutil.rmtree(work_dir, ignore_files=True, ignore_errors=True)
 
 def find_user_by_input(inp):
     inp = inp.strip()
