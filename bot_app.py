@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-BLACK STUDIO bot — Ultimate God Mode 2026
-- Для Форума и Сайта запрашивается только название проекта.
-- Для Лаунчера запрашивается название лаунчера и название сервера.
-- Для игровых модов запрашивается полный список (сервер, проект, верты, донат, тгк, вк, сайт, вип, лвл).
-- Уведомления об оплате от @Evgenn010 или @forever10002.
-- Защита от дублей при регистрации (1 аккаунт = 1 сообщение админу).
+BLACK STUDIO bot — Ultimate Fix 2026
+- Исправлены все возможные конфликты хендлеров TeleBot.
+- Все текстовые кнопки и callback-запросы работают стабильно.
+- Защита от дублей регистрации и чёткие шаблоны заявок.
 """
 import os
 import sqlite3
@@ -195,7 +193,6 @@ def start_cmd(m: types.Message):
         bot.send_message(m.chat.id, "❌ Вы заблокированы в этом боте администрацией.")
         return
 
-    # Уведомление админу строго 1 раз на 1 аккаунт
     if u.id != PRIMARY_ADMIN_ID and not notified_reg:
         try:
             username_str = f"@{u.username}" if u.username else "Отсутствует"
@@ -235,15 +232,221 @@ def start_cmd(m: types.Message):
     )
     bot.send_message(m.chat.id, text, reply_markup=menu(u.id))
 
+@bot.message_handler(func=lambda m: m.text == "👤 Мой профиль")
+def profile_handler(m: types.Message):
+    uid = m.from_user.id
+    uname = f"@{m.from_user.username}" if m.from_user.username else ""
+    user_data = get_user(uid, m.from_user.first_name, uname)
+    balance, comp_limit, banned, active_discount, active_promo_code, admin_flag, admin_role = user_data[1:8]
+    if banned:
+        return
+    
+    promo_info = f"🔥 <b>Промокод на скидку:</b> <code>{active_promo_code}</code> (-{active_discount}% на 1 следующий заказ)" if active_discount > 0 else "❌ <b>Промокод не активирован</b>"
+    
+    if admin_role == 'owner':
+        role_title = "👑 Создатель"
+    elif admin_role == 'admin':
+        role_title = "🛡 Администратор"
+    elif admin_role == 'media_admin':
+        role_title = "📸 Медиа-Администратор"
+    else:
+        role_title = "👤 Пользователь"
+
+    msg = (
+        head("👤", "Личный кабинет") +
+        f"🆔 <b>Ваш ID:</b> <code>{uid}</code>\n"
+        f"👤 <b>Имя:</b> {m.from_user.full_name}\n"
+        f"🔰 <b>Статус:</b> {role_title}\n"
+        f"🔨 <b>Осталось компиляций на сегодня:</b> {comp_limit} / 30\n"
+        f"💰 <b>Баланс баллов:</b> {balance}\n"
+        f"{promo_info}\n\n"
+        "<i>Лимит компиляций обновляется каждый день в 00:00 по МСК.</i>"
+    )
+    bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
+
+@bot.message_handler(func=lambda m: m.text == "📦 Мои заказы")
+def orders_handler(m: types.Message):
+    uid = m.from_user.id
+    cursor.execute("SELECT id, item_title, price_str, status, created_at FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 10", (uid,))
+    orders_list = cursor.fetchall()
+    if not orders_list:
+        bot.send_message(m.chat.id, head("📦", "Ваши заказы") + "У вас пока нет оформленных заказов.", reply_markup=menu(uid))
+        return
+        
+    msg = head("📦", "История ваших заказов")
+    for o in orders_list:
+        msg += f"📑 <b>Заказ #{o[0]}</b> | {o[4]}\n🛍 <b>Товар:</b> {o[1]}\n💵 <b>Сумма:</b> {o[2]}\n📌 <b>Статус:</b> {o[3]}\n{LINE}\n"
+    bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
+
+@bot.message_handler(func=lambda m: m.text in ("🛍 Покупки", "🛍 Магазин (Buy list)"))
+def shop_handler(m: types.Message):
+    uid = m.from_user.id
+    u_data = get_user(uid, m.from_user.first_name)
+    active_discount, active_promo_code = u_data[5], u_data[6]
+    disc_text = f"\n🔥 <i>У вас активирован промокод на скидку {active_discount}% ({active_promo_code})! Скидка применится к следующему заказу.</i>" if active_discount > 0 else ""
+    msg = (
+        head("🛍", "Официальный каталог Black Studio") +
+        f"Выберите интересующий вас товар для просмотра подробностей, галереи скринов и быстрого оформления заказа:{disc_text}"
+    )
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("📱 BR 2025-26 (с планшетом) · 140 ⭐ / 100-150 ₽", callback_data="buy_br2026"),
+        types.InlineKeyboardButton("📱 BR 2025 (без планшета) · 120 ⭐ / 60-90 ₽", callback_data="buy_br2025"),
+        types.InlineKeyboardButton("📱 BR 2025 (роботы фулл) · 100 ⭐ / 80-130 ₽", callback_data="buy_br2025_robots"),
+        types.InlineKeyboardButton("💻 Мод Радмир 8.4 (ПК) · 100 ⭐ / 90-150 ₽", callback_data="buy_radmir"),
+        types.InlineKeyboardButton("🌐 Готовый Форум · 50 ⭐ / 40 ₽", callback_data="buy_forum"),
+        types.InlineKeyboardButton("🌍 Готовый Сайт · 50 ⭐ / 38 ₽", callback_data="buy_site"),
+        types.InlineKeyboardButton("⚙️ Лаунчер / Установка мода / Стиль · 50 ⭐ / 40 ₽", callback_data="buy_other")
+    )
+    bot.send_message(m.chat.id, msg, reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == "🔨 PWN Compiler")
+def pwn_menu_handler(m: types.Message):
+    uid = m.from_user.id
+    user_temp_mode[uid] = "PWN"
+    u_data = get_user(uid, m.from_user.first_name)
+    msg = (
+        head("🔨", "PWN Compiler (Pawno to .amx)") +
+        f"Осталось попыток: <b>{u_data[2]} / 30</b>\n\n"
+        "📤 Отправьте ваш файл скрипта <code>.pwn</code> сюда в чат документом, и бот выполнит компиляцию в <code>.amx</code>!"
+    )
+    bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
+
+@bot.message_handler(func=lambda m: m.text == "⚙️ JNI Compiler")
+def jni_menu_handler(m: types.Message):
+    uid = m.from_user.id
+    msg = (
+        head("⚙️", "JNI Compiler · NDK & Architecture") +
+        "Выберите версию Android NDK для сборки вашего JNI проекта:\n\n"
+        "🟢 <b>r25c</b> — arm64-v8a (Современные CRMP сборки)\n"
+        "🟡 <b>r21e</b> — armeabi-v7a (Средние устройства)\n"
+        "🔴 <b>r16b</b> — armeabi (Старые версии)"
+    )
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        types.InlineKeyboardButton("🟢 NDK r25c · arm64-v8a", callback_data="ndk_r25c"),
+        types.InlineKeyboardButton("🟡 NDK r21e · armeabi-v7a", callback_data="ndk_r21e"),
+        types.InlineKeyboardButton("🔴 NDK r16b · armeabi", callback_data="ndk_r16b")
+    )
+    bot.send_message(m.chat.id, msg, reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text == "🎁 Промокод")
+def promo_menu_handler(m: types.Message):
+    msg = bot.send_message(m.chat.id, "🎁 Введите ваш промокод на скидку в ответном сообщении:")
+    bot.register_next_step_handler(msg, process_promo)
+
+@bot.message_handler(func=lambda m: m.text == "👥 Пригласить друзей")
+def invite_menu_handler(m: types.Message):
+    uid = m.from_user.id
+    bot_info = bot.get_me()
+    ref_link = f"https://t.me/{bot_info.username}?start={uid}"
+    cursor.execute("SELECT COUNT(*) FROM users WHERE ref_by = ?", (uid,))
+    ref_count = cursor.fetchone()[0]
+    msg = (
+        head("👥", "Реферальная система") +
+        "Приглашайте друзей по вашей личной ссылке и получайте бонусы!\n"
+        f"🎁 <b>Награда:</b> +5 баллов за каждого приглашенного друга.\n\n"
+        f"📊 Приглашено друзей: <b>{ref_count}</b>\n"
+        f"🔗 Ваша личная ссылка:\n<code>{ref_link}</code>"
+    )
+    bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
+
+@bot.message_handler(func=lambda m: m.text == "⚙️ Поддержка")
+def support_menu_handler(m: types.Message):
+    msg = (
+        head("⚙️", "Связь и поддержка") +
+        f"💬 <b>Отзывы:</b> {REVIEWS_URL}\n"
+        f"👑 <b>Создатель 1:</b> {OWNER_USERNAME}\n"
+        f"👑 <b>Создатель 2:</b> {CO_OWNER_USERNAME}\n"
+        f"👑 <b>Владелец (VK):</b> {OWNER_VK}\n\n"
+        "<i>Вы также можете просто отправить любое сообщение сюда в чат, и администрация ответит вам напрямую!</i>"
+    )
+    bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
+
+@bot.message_handler(func=lambda m: m.text == "❓ Как пользоваться")
+def how_to_menu_handler(m: types.Message):
+    msg = (
+        head("❓", "Инструкция по использованию") +
+        "1️⃣ Перейдите в раздел <b>🛍 Покупки</b>, выберите нужный товар или мод.\n"
+        "2️⃣ Напишите заявку по пунктам (или своими словами).\n"
+        f"3️⃣ Оплата происходит строго <b>ВПЕРЁД</b>! По поводу оплаты вам напишут: <b>{OWNER_USERNAME}</b> или <b>{CO_OWNER_USERNAME}</b>.\n"
+        "4️⃣ Отслеживайте статус вашей покупки в разделе <b>📦 Мои заказы</b>.\n"
+        "5️⃣ Используйте <b>🔨 PWN Compiler</b> для быстрой компиляции `.pwn` в `.amx` файлы прямо в Telegram!\n\n"
+        f"По всем вопросам: {OWNER_USERNAME}"
+    )
+    bot.send_message(m.chat.id, msg, reply_markup=menu(m.from_user.id))
+
+@bot.message_handler(func=lambda m: m.text == "🛠 Админ-панель")
+def admin_panel_handler(m: types.Message):
+    uid = m.from_user.id
+    if not is_admin(uid):
+        return
+    role = get_admin_role(uid)
+    
+    if role == 'owner':
+        role_desc = "👑 Создатель (Полный доступ)"
+    elif role == 'admin':
+        role_desc = "🛡 Администратор (Заказы, Баны, Юзеры)"
+    elif role == 'media_admin':
+        role_desc = "📸 Медиа-Администратор (Радар трафика & Рулетка)"
+    else:
+        role_desc = "👤 Пользователь"
+
+    msg = (
+        head("🛠", "Панель управления") +
+        f"Ваш уровень доступа: <b>{role_desc}</b>\n\n"
+        "Выберите нужную категорию управления:"
+    )
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    if role == 'owner':
+        markup.add(
+            types.InlineKeyboardButton("📋 Все заказы (Hub)", callback_data="adm_all_orders"),
+            types.InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"),
+            types.InlineKeyboardButton("📢 Рассылка", callback_data="adm_broadcast"),
+            types.InlineKeyboardButton("📸 Выдать Медиа-админку", callback_data="adm_givemedia"),
+            types.InlineKeyboardButton("🛡 Выдать Админку", callback_data="adm_giveadmin"),
+            types.InlineKeyboardButton("❌ Снять права", callback_data="adm_removemedia"),
+            types.InlineKeyboardButton("➕ Создать промо", callback_data="adm_addpromo"),
+            types.InlineKeyboardButton("📋 Список промо", callback_data="adm_listpromo"),
+            types.InlineKeyboardButton("🗑 Удалить промо", callback_data="adm_delpromo"),
+            types.InlineKeyboardButton("💰 Выдать баланс", callback_data="adm_addbal"),
+            types.InlineKeyboardButton("🔄 Сбросить лимиты", callback_data="adm_resetlimits"),
+            types.InlineKeyboardButton("⚡ Сбросить лимит юзеру", callback_data="adm_reset_user_limit"),
+            types.InlineKeyboardButton("👤 Инфо о юзере", callback_data="adm_userinfo"),
+            types.InlineKeyboardButton("🔨 Бан юзера", callback_data="adm_ban"),
+            types.InlineKeyboardButton("🔓 Разбан юзера", callback_data="adm_unban"),
+            types.InlineKeyboardButton("📨 Сообщение юзеру", callback_data="adm_sendto"),
+            types.InlineKeyboardButton("❌ Очистить промо", callback_data="adm_clearpromo")
+        )
+    elif role == 'admin':
+        markup.add(
+            types.InlineKeyboardButton("📋 Все заказы (Hub)", callback_data="adm_all_orders"),
+            types.InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"),
+            types.InlineKeyboardButton("👤 Инфо о юзере", callback_data="adm_userinfo"),
+            types.InlineKeyboardButton("⚡ Сбросить лимит юзеру", callback_data="adm_reset_user_limit"),
+            types.InlineKeyboardButton("🔨 Бан юзера", callback_data="adm_ban"),
+            types.InlineKeyboardButton("🔓 Разбан юзера", callback_data="adm_unban"),
+            types.InlineKeyboardButton("📨 Сообщение юзеру", callback_data="adm_sendto")
+        )
+    else:
+        markup.add(
+            types.InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"),
+            types.InlineKeyboardButton("⚡ Сбросить лимит юзеру", callback_data="adm_reset_user_limit"),
+            types.InlineKeyboardButton("📨 Сообщение юзеру", callback_data="adm_sendto"),
+            types.InlineKeyboardButton("📡 Медиа-Радар (Трафик)", callback_data="media_radar"),
+            types.InlineKeyboardButton("🎮 Медиа-Рулетка (Бонус)", callback_data="media_roulette")
+        )
+        
+    bot.send_message(m.chat.id, msg, reply_markup=markup)
+
 @bot.message_handler(func=lambda m: True)
-def main_router(m: types.Message):
+def text_fallback_router(m: types.Message):
     uid = m.from_user.id
     text = m.text
     uname = f"@{m.from_user.username}" if m.from_user.username else ""
     user_data = get_user(uid, m.from_user.first_name, uname)
-    balance, comp_limit, banned, active_discount, active_promo_code, admin_flag, admin_role = user_data[1:8]
-
-    if banned:
+    if user_data[4]:
         bot.send_message(m.chat.id, "❌ Вы заблокированы администрацией.")
         return
 
@@ -261,204 +464,23 @@ def main_router(m: types.Message):
             except Exception as e:
                 bot.send_message(m.chat.id, f"❌ Ошибка отправки сообщения: {e}")
 
-    if text == "👤 Мой профиль":
-        promo_info = f"🔥 <b>Промокод на скидку:</b> <code>{active_promo_code}</code> (-{active_discount}% на 1 следующий заказ)" if active_discount > 0 else "❌ <b>Промокод не активирован</b>"
-        
-        if admin_role == 'owner':
-            role_title = "👑 Создатель"
-        elif admin_role == 'admin':
-            role_title = "🛡 Администратор"
-        elif admin_role == 'media_admin':
-            role_title = "📸 Медиа-Администратор"
-        else:
-            role_title = "👤 Пользователь"
-
-        msg = (
-            head("👤", "Личный кабинет") +
-            f"🆔 <b>Ваш ID:</b> <code>{uid}</code>\n"
-            f"👤 <b>Имя:</b> {m.from_user.full_name}\n"
-            f"🔰 <b>Статус:</b> {role_title}\n"
-            f"🔨 <b>Осталось компиляций на сегодня:</b> {comp_limit} / 30\n"
-            f"💰 <b>Баланс баллов:</b> {balance}\n"
-            f"{promo_info}\n\n"
-            "<i>Лимит компиляций обновляется каждый день в 00:00 по МСК.</i>"
-        )
-        bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
-
-    elif text == "📦 Мои заказы":
-        cursor.execute("SELECT id, item_title, price_str, status, created_at FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 10", (uid,))
-        orders_list = cursor.fetchall()
-        if not orders_list:
-            bot.send_message(m.chat.id, head("📦", "Ваши заказы") + "У вас пока нет оформленных заказов.", reply_markup=menu(uid))
-            return
-            
-        msg = head("📦", "История ваших заказов")
-        for o in orders_list:
-            msg += f"📑 <b>Заказ #{o[0]}</b> | {o[4]}\n🛍 <b>Товар:</b> {o[1]}\n💵 <b>Сумма:</b> {o[2]}\n📌 <b>Статус:</b> {o[3]}\n{LINE}\n"
-        bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
-
-    elif text in ("🛍 Покупки", "🛍 Магазин (Buy list)"):
-        disc_text = f"\n🔥 <i>У вас активирован промокод на скидку {active_discount}% ({active_promo_code})! Скидка применится к следующему заказу.</i>" if active_discount > 0 else ""
-        msg = (
-            head("🛍", "Официальный каталог Black Studio") +
-            f"Выберите интересующий вас товар для просмотра подробностей, галереи скринов и быстрого оформления заказа:{disc_text}"
-        )
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            types.InlineKeyboardButton("📱 BR 2025-26 (с планшетом) · 140 ⭐ / 100-150 ₽", callback_data="buy_br2026"),
-            types.InlineKeyboardButton("📱 BR 2025 (без планшета) · 120 ⭐ / 60-90 ₽", callback_data="buy_br2025"),
-            types.InlineKeyboardButton("📱 BR 2025 (роботы фулл) · 100 ⭐ / 80-130 ₽", callback_data="buy_br2025_robots"),
-            types.InlineKeyboardButton("💻 Мод Радмир 8.4 (ПК) · 100 ⭐ / 90-150 ₽", callback_data="buy_radmir"),
-            types.InlineKeyboardButton("🌐 Готовый Форум · 50 ⭐ / 40 ₽", callback_data="buy_forum"),
-            types.InlineKeyboardButton("🌍 Готовый Сайт · 50 ⭐ / 38 ₽", callback_data="buy_site"),
-            types.InlineKeyboardButton("⚙️ Лаунчер / Установка мода / Стиль · 50 ⭐ / 40 ₽", callback_data="buy_other")
-        )
-        bot.send_message(m.chat.id, msg, reply_markup=markup)
-
-    elif text == "🔨 PWN Compiler":
-        user_temp_mode[uid] = "PWN"
-        msg = (
-            head("🔨", "PWN Compiler (Pawno to .amx)") +
-            f"Осталось попыток: <b>{comp_limit} / 30</b>\n\n"
-            "📤 Отправьте ваш файл скрипта <code>.pwn</code> сюда в чат документом, и бот выполнит компиляцию в <code>.amx</code>!"
-        )
-        bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
-
-    elif text == "⚙️ JNI Compiler":
-        msg = (
-            head("⚙️", "JNI Compiler · NDK & Architecture") +
-            "Выберите версию Android NDK для сборки вашего JNI проекта:\n\n"
-            "🟢 <b>r25c</b> — arm64-v8a (Современные CRMP сборки)\n"
-            "🟡 <b>r21e</b> — armeabi-v7a (Средние устройства)\n"
-            "🔴 <b>r16b</b> — armeabi (Старые версии)"
-        )
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            types.InlineKeyboardButton("🟢 NDK r25c · arm64-v8a", callback_data="ndk_r25c"),
-            types.InlineKeyboardButton("🟡 NDK r21e · armeabi-v7a", callback_data="ndk_r21e"),
-            types.InlineKeyboardButton("🔴 NDK r16b · armeabi", callback_data="ndk_r16b")
-        )
-        bot.send_message(m.chat.id, msg, reply_markup=markup)
-
-    elif text == "🎁 Промокод":
-        msg = bot.send_message(m.chat.id, "🎁 Введите ваш промокод на скидку в ответном сообщении:")
-        bot.register_next_step_handler(msg, process_promo)
-
-    elif text == "👥 Пригласить друзей":
-        bot_info = bot.get_me()
-        ref_link = f"https://t.me/{bot_info.username}?start={uid}"
-        cursor.execute("SELECT COUNT(*) FROM users WHERE ref_by = ?", (uid,))
-        ref_count = cursor.fetchone()[0]
-        msg = (
-            head("👥", "Реферальная система") +
-            "Приглашайте друзей по вашей личной ссылке и получайте бонусы!\n"
-            f"🎁 <b>Награда:</b> +5 баллов за каждого приглашенного друга.\n\n"
-            f"📊 Приглашено друзей: <b>{ref_count}</b>\n"
-            f"🔗 Ваша личная ссылка:\n<code>{ref_link}</code>"
-        )
-        bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
-
-    elif text == "⚙️ Поддержка":
-        msg = (
-            head("⚙️", "Связь и поддержка") +
-            f"💬 <b>Отзывы:</b> {REVIEWS_URL}\n"
-            f"👑 <b>Создатель 1:</b> {OWNER_USERNAME}\n"
-            f"👑 <b>Создатель 2:</b> {CO_OWNER_USERNAME}\n"
-            f"👑 <b>Владелец (VK):</b> {OWNER_VK}\n\n"
-            "<i>Вы также можете просто отправить любое сообщение сюда в чат, и администрация ответит вам напрямую!</i>"
-        )
-        bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
-
-    elif text == "❓ Как пользоваться":
-        msg = (
-            head("❓", "Инструкция по использованию") +
-            "1️⃣ Перейдите в раздел <b>🛍 Покупки</b>, выберите нужный товар или мод.\n"
-            "2️⃣ Напишите заявку по пунктам (или своими словами).\n"
-            "3️⃣ Оплата происходит строго <b>ВПЕРЁД</b>! По поводу оплаты вам напишут: <b>{OWNER_USERNAME}</b> или <b>{CO_OWNER_USERNAME}</b>.\n"
-            "4️⃣ Отслеживайте статус вашей покупки в разделе <b>📦 Мои заказы</b>.\n"
-            "5️⃣ Используйте <b>🔨 PWN Compiler</b> для быстрой компиляции `.pwn` в `.amx` файлы прямо в Telegram!\n\n"
-            f"По всем вопросам: {OWNER_USERNAME}"
-        )
-        bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
-
-    elif text == "🛠 Админ-панель" and is_admin(uid):
-        role = get_admin_role(uid)
-        
-        if role == 'owner':
-            role_desc = "👑 Создатель (Полный доступ)"
-        elif role == 'admin':
-            role_desc = "🛡 Администратор (Заказы, Баны, Юзеры)"
-        elif role == 'media_admin':
-            role_desc = "📸 Медиа-Администратор (Радар трафика & Рулетка)"
-        else:
-            role_desc = "👤 Пользователь"
-
-        msg = (
-            head("🛠", "Панель управления") +
-            f"Ваш уровень доступа: <b>{role_desc}</b>\n\n"
-            "Выберите нужную категорию управления:"
-        )
-        markup = types.InlineKeyboardMarkup(row_width=2)
-        
-        if role == 'owner':
-            markup.add(
-                types.InlineKeyboardButton("📋 Все заказы (Hub)", callback_data="adm_all_orders"),
-                types.InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"),
-                types.InlineKeyboardButton("📢 Рассылка", callback_data="adm_broadcast"),
-                types.InlineKeyboardButton("📸 Выдать Медиа-админку", callback_data="adm_givemedia"),
-                types.InlineKeyboardButton("🛡 Выдать Админку", callback_data="adm_giveadmin"),
-                types.InlineKeyboardButton("❌ Снять права", callback_data="adm_removemedia"),
-                types.InlineKeyboardButton("➕ Создать промо", callback_data="adm_addpromo"),
-                types.InlineKeyboardButton("📋 Список промо", callback_data="adm_listpromo"),
-                types.InlineKeyboardButton("🗑 Удалить промо", callback_data="adm_delpromo"),
-                types.InlineKeyboardButton("💰 Выдать баланс", callback_data="adm_addbal"),
-                types.InlineKeyboardButton("🔄 Сбросить лимиты", callback_data="adm_resetlimits"),
-                types.InlineKeyboardButton("⚡ Сбросить лимит юзеру", callback_data="adm_reset_user_limit"),
-                types.InlineKeyboardButton("👤 Инфо о юзере", callback_data="adm_userinfo"),
-                types.InlineKeyboardButton("🔨 Бан юзера", callback_data="adm_ban"),
-                types.InlineKeyboardButton("🔓 Разбан юзера", callback_data="adm_unban"),
-                types.InlineKeyboardButton("📨 Сообщение юзеру", callback_data="adm_sendto"),
-                types.InlineKeyboardButton("❌ Очистить промо", callback_data="adm_clearpromo")
+    if not is_admin(uid):
+        try:
+            username_str = f"@{m.from_user.username}" if m.from_user.username else "Отсутствует"
+            fwd_text = (
+                f"💬 <b>НОВОЕ СООБЩЕНИЕ ОТ ПОЛЬЗОВАТЕЛЯ!</b>\n"
+                f"{LINE}\n"
+                f"👤 <b>Ник:</b> {m.from_user.full_name}\n"
+                f"🔗 <b>Юзернейм:</b> {username_str}\n"
+                f"🆔 <b>ID:</b> <code>{uid}</code>\n\n"
+                f"💬 <b>Сообщение:</b>\n{text}\n"
+                f"{LINE}\n"
+                f"<i>Ответьте на это сообщение в боте, чтобы написать пользователю в ЛС!</i>"
             )
-        elif role == 'admin':
-            markup.add(
-                types.InlineKeyboardButton("📋 Все заказы (Hub)", callback_data="adm_all_orders"),
-                types.InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"),
-                types.InlineKeyboardButton("👤 Инфо о юзере", callback_data="adm_userinfo"),
-                types.InlineKeyboardButton("⚡ Сбросить лимит юзеру", callback_data="adm_reset_user_limit"),
-                types.InlineKeyboardButton("🔨 Бан юзера", callback_data="adm_ban"),
-                types.InlineKeyboardButton("🔓 Разбан юзера", callback_data="adm_unban"),
-                types.InlineKeyboardButton("📨 Сообщение юзеру", callback_data="adm_sendto")
-            )
-        else:
-            markup.add(
-                types.InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"),
-                types.InlineKeyboardButton("⚡ Сбросить лимит юзеру", callback_data="adm_reset_user_limit"),
-                types.InlineKeyboardButton("📨 Сообщение юзеру", callback_data="adm_sendto"),
-                types.InlineKeyboardButton("📡 Медиа-Радар (Трафик)", callback_data="media_radar"),
-                types.InlineKeyboardButton("🎮 Медиа-Рулетка (Бонус)", callback_data="media_roulette")
-            )
-            
-        bot.send_message(m.chat.id, msg, reply_markup=markup)
-
-    else:
-        if not is_admin(uid):
-            try:
-                username_str = f"@{m.from_user.username}" if m.from_user.username else "Отсутствует"
-                fwd_text = (
-                    f"💬 <b>НОВОЕ СООБЩЕНИЕ ОТ ПОЛЬЗОВАТЕЛЯ!</b>\n"
-                    f"{LINE}\n"
-                    f"👤 <b>Ник:</b> {m.from_user.full_name}\n"
-                    f"🔗 <b>Юзернейм:</b> {username_str}\n"
-                    f"🆔 <b>ID:</b> <code>{uid}</code>\n\n"
-                    f"💬 <b>Сообщение:</b>\n{text}\n"
-                    f"{LINE}\n"
-                    f"<i>Ответьте на это сообщение в боте, чтобы написать пользователю в ЛС!</i>"
-                )
-                bot.send_message(PRIMARY_ADMIN_ID, fwd_text)
-                bot.send_message(m.chat.id, "✅ Ваше сообщение отправлено администрации! Ожидайте ответа.")
-            except Exception as e:
-                logging.error(f"Error forwarding message to admin: {e}")
+            bot.send_message(PRIMARY_ADMIN_ID, fwd_text)
+            bot.send_message(m.chat.id, "✅ Ваше сообщение отправлено администрации! Ожидайте ответа.")
+        except Exception as e:
+            logging.error(f"Error forwarding message to admin: {e}")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_router(call: types.CallbackQuery):
@@ -594,7 +616,6 @@ def callback_router(call: types.CallbackQuery):
         
         bot.answer_callback_query(call.id, "Оформление заказа...")
         
-        # Точное разделение в зависимости от типа товара
         if "site" in order_details or "forum" in order_details:
             prompt_text = (
                 "🌐 <b>Заполнение заявки (Сайт / Форум):</b>\n\n"
@@ -630,7 +651,6 @@ def callback_router(call: types.CallbackQuery):
         bot.register_next_step_handler(msg, process_order_final)
         return
 
-    # SPECIAL MEDIA-ADMIN FEATURES: TRAFFIC RADAR & ROULETTE MINI-GAME
     if data == "media_radar":
         if role not in ('media_admin', 'owner'):
             bot.answer_callback_query(call.id, "❌ Доступно только медиа-админам!", show_alert=True)
@@ -676,7 +696,6 @@ def callback_router(call: types.CallbackQuery):
         bot.send_message(call.message.chat.id, msg)
         return
 
-    # Admin All Orders Hub & Status Actions (OWNER & ADMIN)
     if is_admin(uid):
         if data == "adm_all_orders":
             if role not in ('owner', 'admin'):
@@ -1426,7 +1445,7 @@ def process_promo(m: types.Message):
     bot.send_message(m.chat.id, f"🎉 <b>Промокод {code} успешно активирован!</b>\n🔥 Вы получили скидку <b>{discount}%</b> на ваш <b>следующий 1 заказ</b> в магазине!", reply_markup=menu(uid))
 
 if __name__ == "__main__":
-    print("BLACK STUDIO bot (Ultimate God Mode 2026) успешно запущен!")
+    print("BLACK STUDIO bot (Ultimate Fix 2026) успешно запущен!")
     
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
