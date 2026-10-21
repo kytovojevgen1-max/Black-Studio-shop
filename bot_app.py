@@ -15,7 +15,7 @@ import threading
 from flask import Flask
 from telebot import TeleBot, types
 
-BOT_TOKEN = "8889779796:AAHlwmV3T6KB0_zi13UrRopG-XkI6zWlW_A"
+BOT_TOKEN = "8889779796:AAGtHQtI7whqZxLrol0mn6SJWPRMldctElI"
 PRIMARY_ADMIN_ID = 8543358373
 OWNER_USERNAME = "@Evgenn010"
 OWNER_VK = "vk.ru/evgenn09"
