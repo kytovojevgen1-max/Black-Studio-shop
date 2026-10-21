@@ -1491,4 +1491,15 @@ if __name__ == "__main__":
     flask_thread.daemon = True
     flask_thread.start()
 
-    bot.infinity_polling()
+    try:
+        bot.remove_webhook()
+    except Exception:
+        pass
+
+    while True:
+        try:
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"Polling error: {e}")
+            import time
+            time.sleep(3)
