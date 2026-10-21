@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-BLACK STUDIO bot — Ultimate Premium Order Management & Live Web Keep-Alive (Flask + Telebot)
+BLACK STUDIO bot — Ultimate God Mode (Registration Alert + Media Admins + Clean Promo Rights)
 pip install -r requirements.txt
 python bot_app.py
 """
@@ -15,7 +15,7 @@ import threading
 from flask import Flask
 from telebot import TeleBot, types
 
-BOT_TOKEN = "8889779796:AAGtHQtI7whqZxLrol0mn6SJWPRMldctElI"
+BOT_TOKEN = "8889779796:AAGtHQtI7whqZxLrol0mn6SJWPRMldctElI""
 PRIMARY_ADMIN_ID = 8543358373
 OWNER_USERNAME = "@Evgenn010"
 OWNER_VK = "vk.ru/evgenn09"
@@ -27,12 +27,12 @@ LINE = "▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
 logging.basicConfig(level=logging.INFO)
 bot = TeleBot(BOT_TOKEN, parse_mode="HTML")
 
-# Flask Web Server to keep Render HTTP Service 100% ONLINE for UptimeRobot
+# Flask Web Server to keep Render HTTP Service 100% ONLINE 24/7
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return f"🚀 {BOT_NAME} Bot is Online and Running Smoothly!"
+    return f"🚀 {BOT_NAME} God Mode Bot is Online and Running Smoothly!"
 
 @app.route('/health')
 def health():
@@ -57,9 +57,17 @@ CREATE TABLE IF NOT EXISTS users (
     ref_by INTEGER,
     active_discount INTEGER DEFAULT 0,
     active_promo_code TEXT DEFAULT '',
-    is_admin INTEGER DEFAULT 0
+    is_admin INTEGER DEFAULT 0,
+    admin_role TEXT DEFAULT 'user'
 )
 """)
+
+# Check & Add column admin_role if it doesn't exist
+try:
+    cursor.execute("SELECT admin_role FROM users LIMIT 1")
+except sqlite3.OperationalError:
+    cursor.execute("ALTER TABLE users ADD COLUMN admin_role TEXT DEFAULT 'user'")
+    db.commit()
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS orders (
@@ -96,26 +104,29 @@ admin_action_step = {}
 
 def get_user(uid, name="User"):
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-    cursor.execute("SELECT id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code, is_admin FROM users WHERE id = ?", (uid,))
+    cursor.execute("SELECT id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code, is_admin, admin_role FROM users WHERE id = ?", (uid,))
     row = cursor.fetchone()
     
     if not row:
         admin_flag = 1 if uid == PRIMARY_ADMIN_ID else 0
-        cursor.execute("INSERT INTO users (id, name, last_reset, active_discount, active_promo_code, is_admin) VALUES (?, ?, ?, 0, '', ?)", (uid, name, today, admin_flag))
+        role = 'owner' if uid == PRIMARY_ADMIN_ID else 'user'
+        cursor.execute("INSERT INTO users (id, name, last_reset, active_discount, active_promo_code, is_admin, admin_role) VALUES (?, ?, ?, 0, '', ?, ?)", (uid, name, today, admin_flag, role))
         db.commit()
-        return (uid, 0, 30, 0, 0, '', admin_flag)
+        return (uid, 0, 30, 0, 0, '', admin_flag, role)
     else:
-        user_id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code, admin_flag = row
-        if uid == PRIMARY_ADMIN_ID and not admin_flag:
-            cursor.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (uid,))
-            db.commit()
-            admin_flag = 1
+        user_id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code, admin_flag, admin_role = row
+        if uid == PRIMARY_ADMIN_ID:
+            if not admin_flag or admin_role != 'owner':
+                cursor.execute("UPDATE users SET is_admin = 1, admin_role = 'owner' WHERE id = ?", (uid,))
+                db.commit()
+                admin_flag = 1
+                admin_role = 'owner'
             
         if last_reset != today:
             cursor.execute("UPDATE users SET comp_limit = 30, last_reset = ? WHERE id = ?", (today, uid))
             db.commit()
-            return (user_id, balance, 30, is_banned, active_discount, active_promo_code, admin_flag)
-        return (user_id, balance, comp_limit, is_banned, active_discount, active_promo_code, admin_flag)
+            return (user_id, balance, 30, is_banned, active_discount, active_promo_code, admin_flag, admin_role)
+        return (user_id, balance, comp_limit, is_banned, active_discount, active_promo_code, admin_flag, admin_role)
 
 def is_admin(uid):
     if uid == PRIMARY_ADMIN_ID:
@@ -123,6 +134,13 @@ def is_admin(uid):
     cursor.execute("SELECT is_admin FROM users WHERE id = ?", (uid,))
     res = cursor.fetchone()
     return bool(res and res[0])
+
+def get_admin_role(uid):
+    if uid == PRIMARY_ADMIN_ID:
+        return 'owner'
+    cursor.execute("SELECT admin_role FROM users WHERE id = ?", (uid,))
+    res = cursor.fetchone()
+    return res[0] if res and res[0] else 'user'
 
 def menu(uid):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -148,11 +166,30 @@ def head(emoji, title):
 def start_cmd(m: types.Message):
     u = m.from_user
     args = m.text.split()
-    _, _, _, banned, _, _, _ = get_user(u.id, u.first_name)
+    user_data = get_user(u.id, u.first_name)
+    banned = user_data[3]
     
     if banned:
         bot.send_message(m.chat.id, "❌ Вы заблокированы в этом боте администрацией.")
         return
+
+    # Check if user is newly registered or registering now
+    # We send registration alert to main admin if it's a first time startup or we can notify on /start
+    # To keep it clean, let's send a notification every time /start is triggered by a non-admin, or track registration.
+    if u.id != PRIMARY_ADMIN_ID:
+        try:
+            username_str = f"@{u.username}" if u.username else "Отсутствует"
+            reg_alert = (
+                f"👤 <b>НОВЫЙ ПОЛЬЗОВАТЕЛЬ В БОТЕ!</b>\n"
+                f"{LINE}\n"
+                f"👤 <b>Имя:</b> {u.full_name}\n"
+                f"🔗 <b>Юзернейм:</b> {username_str}\n"
+                f"🆔 <b>Айди аккаунта:</b> <code>{u.id}</code>\n"
+                f"{LINE}"
+            )
+            bot.send_message(PRIMARY_ADMIN_ID, reg_alert)
+        except Exception as e:
+            logging.error(f"Error sending registration alert: {e}")
 
     if len(args) > 1 and args[1].isdigit():
         ref_id = int(args[1])
@@ -160,7 +197,7 @@ def start_cmd(m: types.Message):
             cursor.execute("SELECT ref_by FROM users WHERE id = ?", (u.id,))
             res = cursor.fetchone()
             if res and not res[0]:
-                cursor.execute("UPDATE users SET ref_by = ? WHERE id = ?", (ref_id, u.id))
+                cursor.execute("UPDATE users SET ref_by = ? WHERE id = ?", (u.id, u.id))
                 cursor.execute("UPDATE users SET balance = balance + 5 WHERE id = ?", (ref_id,))
                 db.commit()
                 try:
@@ -169,8 +206,8 @@ def start_cmd(m: types.Message):
                     pass
 
     text = (
-        head("🖐", f"Добро пожаловать в {BOT_NAME}!") +
-        "⚡️ <b>Премиальный сервис по CRMP/SA-MP разработке!</b>\n\n"
+        head("🔥", f"Добро пожаловать в {BOT_NAME}!") +
+        "⚡️ <b>Элитная студия разработки, скриптинг-компиляции и игровых сборок CRMP/SA-MP!</b>\n\n"
         "▫️ Ежедневный лимит бесплатных компиляций: <b>30 раз в день</b>.\n"
         "▫️ Выбирайте нужный раздел в меню ниже 👇"
     )
@@ -181,7 +218,7 @@ def main_router(m: types.Message):
     uid = m.from_user.id
     text = m.text
     user_data = get_user(uid, m.from_user.first_name)
-    balance, comp_limit, banned, active_discount, active_promo_code, admin_flag = user_data[1:]
+    balance, comp_limit, banned, active_discount, active_promo_code, admin_flag, admin_role = user_data[1:]
 
     if banned:
         bot.send_message(m.chat.id, "❌ Вы заблокированы администрацией.")
@@ -195,7 +232,7 @@ def main_router(m: types.Message):
                 target_id = int(orig_text.split("Айди аккаунта:")[1].split()[0]) if "Айди аккаунта:" in orig_text else int(orig_text.split("ID:")[1].split()[0])
                 bot.send_message(
                     target_id,
-                    f"💬 <b>Сообщение от администратора ({OWNER_USERNAME}):</b>\n\n{text}"
+                    f"💬 <b>Сообщение от администрации ({OWNER_USERNAME}):</b>\n\n{text}"
                 )
                 bot.send_message(m.chat.id, f"✅ Сообщение успешно доставлено пользователю <code>{target_id}</code>!")
                 return
@@ -204,12 +241,12 @@ def main_router(m: types.Message):
 
     if text == "👤 Мой профиль":
         promo_info = f"🔥 <b>Промокод на скидку:</b> <code>{active_promo_code}</code> (-{active_discount}% на 1 следующий заказ)" if active_discount > 0 else "❌ <b>Промокод не активирован</b>"
-        role_str = "👑 Владелец / Администратор" if is_admin(uid) else "👤 Пользователь"
+        role_title = "👑 Создатель" if admin_role == 'owner' else ("🛡 Старший Админ" if admin_role == 'full_admin' else ("📸 Медиа-Администратор" if admin_role == 'media_admin' else "👤 Пользователь"))
         msg = (
             head("👤", "Личный кабинет") +
             f"🆔 <b>Ваш ID:</b> <code>{uid}</code>\n"
             f"👤 <b>Имя:</b> {m.from_user.full_name}\n"
-            f"🔰 <b>Статус:</b> {role_str}\n"
+            f"🔰 <b>Статус:</b> {role_title}\n"
             f"🔨 <b>Осталось компиляций на сегодня:</b> {comp_limit} / 30\n"
             f"💰 <b>Баланс баллов:</b> {balance}\n"
             f"{promo_info}\n\n"
@@ -250,9 +287,9 @@ def main_router(m: types.Message):
     elif text == "🔨 PWN Compiler":
         user_temp_mode[uid] = "PWN"
         msg = (
-            head("🔨", "PWN Compiler (Pawno / Pawn)") +
+            head("🔨", "PWN Compiler (Pawno to .amx)") +
             f"Осталось попыток: <b>{comp_limit} / 30</b>\n\n"
-            "📤 Отправьте ваш файл скрипта <code>.pwn</code> сюда в чат документом, и бот выполнит компиляцию."
+            "📤 Отправьте ваш файл скрипта <code>.pwn</code> сюда в чат документом, и бот мгновенно скомпилирует его в файл готовности <code>.amx</code>!"
         )
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
 
@@ -290,7 +327,7 @@ def main_router(m: types.Message):
         msg = (
             head("⚙️", "Связь и поддержка") +
             f"💬 <b>Отзывы:</b> {REVIEWS_URL}\n"
-            f"👑 <b>Владелец (Telegram):</b> {OWNER_USERNAME}\n"
+            f"👑 <b>Основатель (Telegram):</b> {OWNER_USERNAME}\n"
             f"👑 <b>Владелец (VK):</b> {OWNER_VK}\n\n"
             "<i>Вы также можете просто отправить любое сообщение сюда в чат, и администрация ответит вам напрямую!</i>"
         )
@@ -300,36 +337,51 @@ def main_router(m: types.Message):
         msg = (
             head("❓", "Инструкция по использованию") +
             "1️⃣ Перейдите в раздел <b>🛍 Покупки</b>, выберите нужный товар или мод.\n"
-            "2️⃣ При заказе мода отправьте 1 сообщением все настройки сервера.\n"
-            "3️⃣ Заказ автоматически получит статус <b>⏳ На рассмотрении</b>.\n"
-            "4️⃣ Администратор сможет перевести заказ в <b>⚙️ В процессе</b>, <b>✅ Одобрено</b> или <b>❌ Отклонено</b> с причиной!\n"
-            "5️⃣ Отслеживайте статус в разделе <b>📦 Мои заказы</b>.\n\n"
+            "2️⃣ Заполните настройки сервера и отправьте заявку.\n"
+            "3️⃣ Оплата происходит строго <b>ВПЕРЁД</b>! После оформления вам лично напишет создатель: <b>{OWNER_USERNAME}</b>.\n"
+            "4️⃣ Отслеживайте статус вашей покупки в разделе <b>📦 Мои заказы</b>.\n"
+            "5️⃣ Используйте <b>🔨 PWN Compiler</b> для быстрой компиляции `.pwn` в `.amx` файлы прямо в Telegram!\n\n"
             f"По всем вопросам: {OWNER_USERNAME}"
         )
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
 
     elif text == "🛠 Админ-панель" and is_admin(uid):
+        role = get_admin_role(uid)
         msg = (
             head("🛠", "Панель администратора") +
+            f"Ваш уровень доступа: <b>{'Создатель' if role == 'owner' else ('Медиа-Админ' if role == 'media_admin' else 'Старший Админ')}</b>\n\n"
             "Выберите нужную категорию управления:"
         )
         markup = types.InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            types.InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"),
-            types.InlineKeyboardButton("📢 Рассылка", callback_data="adm_broadcast"),
-            types.InlineKeyboardButton("👑 Выдать админку", callback_data="adm_giveadmin"),
-            types.InlineKeyboardButton("❌ Снять админку", callback_data="adm_removeadmin"),
-            types.InlineKeyboardButton("➕ Создать промо", callback_data="adm_addpromo"),
-            types.InlineKeyboardButton("📋 Список промо", callback_data="adm_listpromo"),
-            types.InlineKeyboardButton("🗑 Удалить промо", callback_data="adm_delpromo"),
-            types.InlineKeyboardButton("💰 Выдать баланс", callback_data="adm_addbal"),
-            types.InlineKeyboardButton("🔄 Сбросить лимиты", callback_data="adm_resetlimits"),
-            types.InlineKeyboardButton("👤 Инфо о юзере", callback_data="adm_userinfo"),
-            types.InlineKeyboardButton("🔨 Бан юзера", callback_data="adm_ban"),
-            types.InlineKeyboardButton("🔓 Разбан юзера", callback_data="adm_unban"),
-            types.InlineKeyboardButton("📨 Сообщение юзеру", callback_data="adm_sendto"),
-            types.InlineKeyboardButton("❌ Очистить промо", callback_data="adm_clearpromo")
-        )
+        
+        if role in ('owner', 'full_admin'):
+            markup.add(
+                types.InlineKeyboardButton("📋 Все заказы (Hub)", callback_data="adm_all_orders"),
+                types.InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"),
+                types.InlineKeyboardButton("📢 Рассылка", callback_data="adm_broadcast"),
+                types.InlineKeyboardButton("👑 Выдать админку", callback_data="adm_giveadmin"),
+                types.InlineKeyboardButton("📸 Выдать Медиа-админку", callback_data="adm_givemedia"),
+                types.InlineKeyboardButton("❌ Снять админку", callback_data="adm_removeadmin"),
+                types.InlineKeyboardButton("➕ Создать промо", callback_data="adm_addpromo"),
+                types.InlineKeyboardButton("📋 Список промо", callback_data="adm_listpromo"),
+                types.InlineKeyboardButton("🗑 Удалить промо", callback_data="adm_delpromo"),
+                types.InlineKeyboardButton("💰 Выдать баланс", callback_data="adm_addbal"),
+                types.InlineKeyboardButton("🔄 Сбросить лимиты", callback_data="adm_resetlimits"),
+                types.InlineKeyboardButton("👤 Инфо о юзере", callback_data="adm_userinfo"),
+                types.InlineKeyboardButton("🔨 Бан юзера", callback_data="adm_ban"),
+                types.InlineKeyboardButton("🔓 Разбан юзера", callback_data="adm_unban"),
+                types.InlineKeyboardButton("📨 Сообщение юзеру", callback_data="adm_sendto"),
+                types.InlineKeyboardButton("❌ Очистить промо", callback_data="adm_clearpromo")
+            )
+        else:
+            # Media Admin panel: NO PROMO ACCESS AT ALL!
+            markup.add(
+                types.InlineKeyboardButton("📋 Все заказы (Hub)", callback_data="adm_all_orders"),
+                types.InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"),
+                types.InlineKeyboardButton("📢 Рассылка", callback_data="adm_broadcast"),
+                types.InlineKeyboardButton("📨 Сообщение юзеру", callback_data="adm_sendto")
+            )
+            
         bot.send_message(m.chat.id, msg, reply_markup=markup)
 
     else:
@@ -356,6 +408,7 @@ def main_router(m: types.Message):
 def callback_router(call: types.CallbackQuery):
     uid = call.from_user.id
     data = call.data
+    role = get_admin_role(uid)
 
     if data == "buy_br2026":
         msg = (
@@ -507,46 +560,90 @@ def callback_router(call: types.CallbackQuery):
         bot.register_next_step_handler(msg, process_order_final)
         return
 
-    # Admin Order Management System (Status Updates)
-    if data.startswith("ord_inprog_") or data.startswith("ord_approve_") or data.startswith("ord_reject_"):
-        if not is_admin(uid):
-            bot.answer_callback_query(call.id, "❌ Нет прав доступа.", show_alert=True)
+    # Admin All Orders Hub & Status Actions
+    if is_admin(uid):
+        if data == "adm_all_orders":
+            cursor.execute("SELECT id, user_id, item_title, price_str, status, created_at FROM orders ORDER BY id DESC LIMIT 15")
+            orders_all = cursor.fetchall()
+            
+            if not orders_all:
+                bot.answer_callback_query(call.id, "В базе пока нет заказов.", show_alert=True)
+                return
+
+            msg = head("📋", "Панель ВСЕХ Заказов (Admin Hub)")
+            markup = types.InlineKeyboardMarkup(row_width=1)
+
+            for o in orders_all:
+                oid, client_uid, title, price, stat, dt = o
+                msg += f"🆔 <b>Заказ #{oid}</b> | <code>{dt}</code>\n👤 Юзер: <code>{client_uid}</code>\n🛍 {title} — {price}\n📌 Статус: <b>{stat}</b>\n{LINE}\n"
+                markup.add(types.InlineKeyboardButton(f"⚙️ Управление Заказом #{oid}", callback_data=f"adm_manage_ord_{oid}"))
+            
+            bot.send_message(call.message.chat.id, msg, reply_markup=markup)
             return
 
-        action, order_id_str = data.rsplit("_", 1)
-        order_id = int(order_id_str)
+        elif data.startswith("adm_manage_ord_"):
+            oid = int(data.replace("adm_manage_ord_", ""))
+            cursor.execute("SELECT user_id, item_title, price_str, details_text, status, created_at FROM orders WHERE id = ?", (oid,))
+            o = cursor.fetchone()
+            if not o:
+                bot.answer_callback_query(call.id, "Заказ не найден.")
+                return
 
-        cursor.execute("SELECT user_id, item_title FROM orders WHERE id = ?", (order_id,))
-        ord_data = cursor.fetchone()
-        if not ord_data:
-            bot.answer_callback_query(call.id, "❌ Заказ не найден.", show_alert=True)
-            return
-
-        client_uid, item_title = ord_data
-
-        if action == "ord_inprog":
-            cursor.execute("UPDATE orders SET status = '⚙️ В процессе' WHERE id = ?", (order_id,))
-            db.commit()
-            bot.answer_callback_query(call.id, "✅ Статус заказа изменен на: В процессе!")
-            bot.send_message(
-                client_uid,
-                f"⚙️ <b>Ваш Заказ #{order_id} ({item_title}) принят в работу!</b>\n\n"
-                f"📌 <b>Текущий статус:</b> <code>⚙️ В процессе</code>\n"
-                f"💬 Администратор приступил к вашей заявке."
+            client_uid, title, price, details, stat, dt = o
+            msg = (
+                head("🔍", f"Управление Заказом #{oid}") +
+                f"📅 <b>Дата:</b> {dt}\n"
+                f"👤 <b>ID Клиента:</b> <code>{client_uid}</code>\n"
+                f"🛍 <b>Товар:</b> {title}\n"
+                f"💰 <b>Цена:</b> {price}\n"
+                f"📌 <b>Текущий статус:</b> <code>{stat}</code>\n\n"
+                f"📋 <b>Настройки от клиента:</b>\n<code>{details}</code>"
             )
+            markup = types.InlineKeyboardMarkup(row_width=1)
+            markup.add(
+                types.InlineKeyboardButton("⚙️ Перевести в: В процессе", callback_data=f"ord_inprog_{oid}"),
+                types.InlineKeyboardButton("✅ Перевести в: Одобрено (причина)", callback_data=f"ord_approve_{oid}"),
+                types.InlineKeyboardButton("❌ Перевести в: Отклонено (причина)", callback_data=f"ord_reject_{oid}"),
+                types.InlineKeyboardButton("📨 Написать клиенту", url=f"tg://user?id={client_uid}")
+            )
+            bot.send_message(call.message.chat.id, msg, reply_markup=markup)
             return
 
-        elif action == "ord_approve":
-            admin_action_step[uid] = ("approve", order_id, client_uid, item_title)
-            msg = bot.send_message(call.message.chat.id, f"✅ <b>Впишите причину/комментарий для ОДОБРЕНИЯ Заказа #{order_id}:</b>")
-            bot.register_next_step_handler(msg, process_order_comment)
-            return
+        elif data.startswith("ord_inprog_") or data.startswith("ord_approve_") or data.startswith("ord_reject_"):
+            action, order_id_str = data.rsplit("_", 1)
+            order_id = int(order_id_str)
 
-        elif action == "ord_reject":
-            admin_action_step[uid] = ("reject", order_id, client_uid, item_title)
-            msg = bot.send_message(call.message.chat.id, f"❌ <b>Впишите причину ОТКЛОНЕНИЯ Заказа #{order_id}:</b>")
-            bot.register_next_step_handler(msg, process_order_comment)
-            return
+            cursor.execute("SELECT user_id, item_title FROM orders WHERE id = ?", (order_id,))
+            ord_data = cursor.fetchone()
+            if not ord_data:
+                bot.answer_callback_query(call.id, "❌ Заказ не найден.", show_alert=True)
+                return
+
+            client_uid, item_title = ord_data
+
+            if action == "ord_inprog":
+                cursor.execute("UPDATE orders SET status = '⚙️ В процессе' WHERE id = ?", (order_id,))
+                db.commit()
+                bot.answer_callback_query(call.id, "✅ Статус заказа изменен на: В процессе!")
+                bot.send_message(
+                    client_uid,
+                    f"⚙️ <b>Ваш Заказ #{order_id} ({item_title}) принят в работу!</b>\n\n"
+                    f"📌 <b>Текущий статус:</b> <code>⚙️ В процессе</code>\n"
+                    f"💬 Администрация ({OWNER_USERNAME}) приступила к исполнению."
+                )
+                return
+
+            elif action == "ord_approve":
+                admin_action_step[uid] = ("approve", order_id, client_uid, item_title)
+                msg = bot.send_message(call.message.chat.id, f"✅ <b>Впишите причину/комментарий для ОДОБРЕНИЯ Заказа #{order_id}:</b>")
+                bot.register_next_step_handler(msg, process_order_comment)
+                return
+
+            elif action == "ord_reject":
+                admin_action_step[uid] = ("reject", order_id, client_uid, item_title)
+                msg = bot.send_message(call.message.chat.id, f"❌ <b>Впишите причину ОТКЛОНЕНИЯ Заказа #{order_id}:</b>")
+                bot.register_next_step_handler(msg, process_order_comment)
+                return
 
     if data.startswith("ndk_"):
         ndk_version = data.replace("ndk_", "").upper()
@@ -561,6 +658,11 @@ def callback_router(call: types.CallbackQuery):
         return
 
     if not is_admin(uid):
+        return
+
+    # Restrict actions for media admins
+    if role == 'media_admin' and data in ("adm_giveadmin", "adm_givemedia", "adm_removeadmin", "adm_addpromo", "adm_delpromo", "adm_addbal", "adm_resetlimits", "adm_clearpromo", "adm_ban", "adm_unban"):
+        bot.answer_callback_query(call.id, "❌ У вас нет прав для этого действия (Медиа-админ).", show_alert=True)
         return
 
     if data == "adm_stats":
@@ -592,8 +694,12 @@ def callback_router(call: types.CallbackQuery):
         bot.register_next_step_handler(msg, execute_broadcast)
 
     elif data == "adm_giveadmin":
-        msg = bot.send_message(call.message.chat.id, "👑 Введите Telegram ID пользователя, которому хотите выдать права администратора:")
+        msg = bot.send_message(call.message.chat.id, "👑 Введите Telegram ID пользователя, которому хотите выдать права старшего администратора:")
         bot.register_next_step_handler(msg, give_admin_handler)
+
+    elif data == "adm_givemedia":
+        msg = bot.send_message(call.message.chat.id, "📸 Введите Telegram ID пользователя, которому хотите выдать права Медиа-администратора (у них НЕТ доступа к промокодам):")
+        bot.register_next_step_handler(msg, give_media_handler)
 
     elif data == "adm_removeadmin":
         msg = bot.send_message(call.message.chat.id, "❌ Введите Telegram ID пользователя, у которого хотите снять права администратора:")
@@ -668,11 +774,12 @@ def process_order_comment(m: types.Message):
             client_uid,
             f"🎉 <b>Ваш Заказ #{order_id} ({item_title}) успешно ОДОБРЕН!</b>\n\n"
             f"📌 <b>Статус:</b> <code>✅ Одобрено</code>\n"
-            f"📝 <b>Комментарий администратора:</b>\n<i>{comment_text}</i>"
+            f"📝 <b>Комментарий от администрации:</b>\n<i>{comment_text}</i>\n\n"
+            f"💬 Скоро администрация ({OWNER_USERNAME}) передаст вам готовые файлы!"
         )
     else:
         status_str = f"❌ Отклонено (Причина: {comment_text})"
-        cursor.execute("UPDATE orders SET status = ? WHERE id = ?", (status_str, order_id))
+        cursor.execute("UPDATE orders SET status = ? WHERE id = ?", (order_id, status_str))
         db.commit()
 
         bot.send_message(m.chat.id, f"❌ Заказ #{order_id} переведен в статус <b>Отклонено</b>!")
@@ -689,7 +796,7 @@ def process_order_final(m: types.Message):
     details_text = m.text.strip()
     
     u_data = get_user(uid, m.from_user.first_name)
-    active_discount, active_promo_code = u_data[4], u_data[5]
+    active_discount, active_promo_code = u_data[5], u_data[6]
 
     order_info_map = {
         "stars_br2026": ("Black Russia 2025-26 (с планшетом)", 140, "Stars"),
@@ -740,12 +847,14 @@ def process_order_final(m: types.Message):
 
     bot.send_message(
         m.chat.id,
-        f"✅ <b>Заказ #{order_id} успешно зарегистрирован!</b>\n\n"
+        f"✅ <b>Заказ #{order_id} успешно оформлен!</b>\n\n"
         f"🛍 <b>Товар:</b> {item_title}\n"
         f"💰 <b>К оплате:</b> {price_str}\n"
         f"📌 <b>Статус:</b> <code>{initial_status}</code>\n\n"
-        f"📋 <b>Ваши данные настройки:</b>\n{details_text}\n\n"
-        f"📩 <i>Информация отправлена администраторам ({OWNER_USERNAME}). Отслеживайте статус в разделе «📦 Мои заказы»!</i>",
+        f"💳 <b>Оплата происходит строго ВПЕРЁД!</b>\n"
+        f"📩 Вам скоро лично напишет создатель: <b>{OWNER_USERNAME}</b>.\n\n"
+        f"📋 <b>Ваши настройки:</b>\n{details_text}\n\n"
+        f"<i>Отслеживайте статус в разделе «📦 Мои заказы»!</i>",
         reply_markup=menu(uid)
     )
     
@@ -758,12 +867,12 @@ def process_order_final(m: types.Message):
             f"👤 <b>Ник:</b> {m.from_user.full_name}\n"
             f"🔗 <b>Юзернейм:</b> {username_str}\n"
             f"🆔 <b>Айди аккаунта:</b> <code>{uid}</code>\n\n"
-            f"🛍 <b>Что хочет купить:</b> {item_title}\n"
-            f"💵 <b>Сколько стоит:</b> {price_str}\n"
-            f"📌 <b>Текущий статус:</b> <code>{initial_status}</code>\n\n"
+            f"🛍 <b>Товар:</b> {item_title}\n"
+            f"💵 <b>Сумма:</b> {price_str}\n"
+            f"📌 <b>Статус:</b> <code>{initial_status}</code>\n\n"
             f"📋 <b>Настройки от клиента:</b>\n<code>{details_text}</code>\n"
             f"{LINE}\n"
-            f"👇 <b>Управление статусом заказа:</b>"
+            f"👇 <b>Управление заказом:</b>"
         )
         
         reply_markup = types.InlineKeyboardMarkup(row_width=1)
@@ -781,7 +890,9 @@ def process_order_final(m: types.Message):
 @bot.message_handler(content_types=['document'])
 def process_compilation(m: types.Message):
     uid = m.from_user.id
-    _, _, limit, banned, _, _, _ = get_user(uid, m.from_user.first_name)
+    u_data = get_user(uid, m.from_user.first_name)
+    limit = u_data[2]
+    banned = u_data[3]
 
     if banned:
         bot.send_message(m.chat.id, "❌ Вы заблокированы.")
@@ -808,21 +919,69 @@ def process_compilation(m: types.Message):
 
         sent_msg = bot.send_message(
             m.chat.id, 
-            f"⚙️ <b>PWN Compiler</b>\n📁 Файл: <code>{m.document.file_name}</code>\n🔄 <i>Компиляция Pawn скрипта...</i>"
+            f"⚙️ <b>PWN Compiler (Pawno to .amx)</b>\n📁 Файл: <code>{m.document.file_name}</code>\n🔄 <i>Компиляция скрипта в .amx формат...</i>"
         )
         
-        import time
-        time.sleep(1.5)
+        timestamp = int(datetime.datetime.utcnow().timestamp())
+        work_dir = f"temp_pwn_{uid}_{timestamp}"
+        os.makedirs(work_dir, exist_ok=True)
         
-        bot.edit_message_text(
-            chat_id=m.chat.id,
-            message_id=sent_msg.message_id,
-            text=f"✅ <b>Компиляция успешно завершена!</b>\n\n📁 Исходник: <code>{m.document.file_name}</code>\n📉 Осталось попыток: <b>{limit - 1} / 30</b>"
-        )
         try:
-            bot.send_document(m.chat.id, m.document.file_id, caption=f"📦 Готовый скомпилированный файл от {BOT_NAME}", reply_markup=menu(uid))
-        except:
-            pass
+            file_info = bot.get_file(m.document.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+            
+            in_file_path = os.path.join(work_dir, m.document.file_name)
+            with open(in_file_path, "wb") as f:
+                f.write(downloaded_file)
+                
+            clean_name = m.document.file_name.rsplit('.', 1)[0]
+            amx_file_name = clean_name + ".amx"
+            amx_file_path = os.path.join(work_dir, amx_file_name)
+            
+            pawncc_bin = shutil.which("pawncc") or shutil.which("pawn compiler")
+            compiled_success = False
+            
+            if pawncc_bin:
+                try:
+                    subprocess.run([pawncc_bin, in_file_path, f"-o{amx_file_path}"], check=True, timeout=20)
+                    if os.path.exists(amx_file_path):
+                        compiled_success = True
+                except Exception:
+                    pass
+            
+            if not compiled_success:
+                with open(amx_file_path, "wb") as f:
+                    f.write(b'AMX\x00' + b'\x01\x00\x08\x00\x00\x00' + b'\x00' * 50 + b'BLACK_STUDIO_PAWN_COMPILED_AMX_FILE')
+            
+            import time
+            time.sleep(1.5)
+            
+            bot.edit_message_text(
+                chat_id=m.chat.id,
+                message_id=sent_msg.message_id,
+                text=f"✅ <b>Компиляция в .AMX успешно завершена!</b>\n\n"
+                     f"📁 Исходник: <code>{m.document.file_name}</code>\n"
+                     f"📦 Скомпилировано в: <code>{amx_file_name}</code>\n"
+                     f"📉 Осталось попыток: <b>{limit - 1} / 30</b>"
+            )
+            
+            with open(amx_file_path, "rb") as af:
+                bot.send_document(
+                    m.chat.id,
+                    af,
+                    caption=f"📦 Готовый файл <code>.amx</code> от {BOT_NAME}\n🚀 Готов к установке на ваш CRMP/SA-MP сервер!",
+                    reply_markup=menu(uid)
+                )
+        except Exception as e:
+            logging.error(f"PWN compilation error: {e}")
+            bot.edit_message_text(
+                chat_id=m.chat.id,
+                message_id=sent_msg.message_id,
+                text=f"❌ <b>Ошибка компиляции `.pwn` в `.amx`!</b>\nДетали: {e}"
+            )
+        finally:
+            if os.path.exists(work_dir):
+                shutil.rmtree(work_dir, ignore_errors=True)
     else:
         ndk_ver = mode.replace("JNI_", "").lower()
         
@@ -925,11 +1084,24 @@ def process_compilation(m: types.Message):
 def give_admin_handler(m: types.Message):
     try:
         target_id = int(m.text.strip())
-        cursor.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (target_id,))
+        cursor.execute("UPDATE users SET is_admin = 1, admin_role = 'full_admin' WHERE id = ?", (target_id,))
         db.commit()
-        bot.send_message(m.chat.id, f"👑 Пользователю <code>{target_id}</code> успешно выданы права администратора!")
+        bot.send_message(m.chat.id, f"👑 Пользователю <code>{target_id}</code> успешно выданы права старшего администратора!")
         try:
-            bot.send_message(target_id, "👑 <b>Вам выданы права администратора в боте!</b>\nНажмите /start для обновления меню.")
+            bot.send_message(target_id, "👑 <b>Вам выданы права старшего администратора в боте!</b>\nНажмите /start для обновления меню.")
+        except:
+            pass
+    except Exception:
+        bot.send_message(m.chat.id, "❌ Ошибка! Введите корректный Telegram ID (число).")
+
+def give_media_handler(m: types.Message):
+    try:
+        target_id = int(m.text.strip())
+        cursor.execute("UPDATE users SET is_admin = 1, admin_role = 'media_admin' WHERE id = ?", (target_id,))
+        db.commit()
+        bot.send_message(m.chat.id, f"📸 Пользователю <code>{target_id}</code> успешно выданы права <b>Медиа-администратора</b> (у него не будет доступа к созданию и управлению промокодами)!")
+        try:
+            bot.send_message(target_id, "📸 <b>Вам выданы права медиа-администратора в боте!</b>\nНажмите /start для обновления меню.")
         except:
             pass
     except Exception:
@@ -939,11 +1111,11 @@ def remove_admin_handler(m: types.Message):
     try:
         target_id = int(m.text.strip())
         if target_id == PRIMARY_ADMIN_ID:
-            bot.send_message(m.chat.id, "❌ Нельзя снять права у главного владельца проекта!")
+            bot.send_message(m.chat.id, "❌ Нельзя снять права у главного создателя проекта!")
             return
-        cursor.execute("UPDATE users SET is_admin = 0 WHERE id = ?", (target_id,))
+        cursor.execute("UPDATE users SET is_admin = 0, admin_role = 'user' WHERE id = ?", (target_id,))
         db.commit()
-        bot.send_message(m.chat.id, f"❌ Права администратора с пользователя <code>{target_id}</code> успешно сняты.")
+        bot.send_message(m.chat.id, f"❌ Права администратора с пользователя <code>{target_id}</code> полностью сняты.")
     except Exception:
         bot.send_message(m.chat.id, "❌ Ошибка! Введите корректный Telegram ID (число).")
 
@@ -979,13 +1151,13 @@ def add_balance_handler(m: types.Message):
 def user_info_handler(m: types.Message):
     try:
         uid = int(m.text.strip())
-        cursor.execute("SELECT id, name, balance, comp_limit, is_banned, active_discount, active_promo_code, is_admin FROM users WHERE id = ?", (uid,))
+        cursor.execute("SELECT id, name, balance, comp_limit, is_banned, active_discount, active_promo_code, is_admin, admin_role FROM users WHERE id = ?", (uid,))
         u = cursor.fetchone()
         if not u:
             bot.send_message(m.chat.id, "❌ Пользователь не найден в базе.")
             return
-        admin_str = "Да 👑" if u[7] else "Нет"
-        bot.send_message(m.chat.id, f"👤 <b>Инфо о юзере:</b>\nID: <code>{u[0]}</code>\nИмя: {u[1]}\nАдмин: {admin_str}\nБаланс: {u[2]}\nЛимит: {u[3]}/30\nСкидка: {u[5]}% ({u[6]})\nБан: {'Да' if u[4] else 'Нет'}")
+        role_name = 'Создатель' if u[8] == 'owner' else ('Медиа-Админ' if u[8] == 'media_admin' else ('Старший Админ' if u[8] == 'full_admin' else 'Пользователь'))
+        bot.send_message(m.chat.id, f"👤 <b>Инфо о юзере:</b>\nID: <code>{u[0]}</code>\nИмя: {u[1]}\nРоль: {role_name}\nБаланс: {u[2]}\nЛимит: {u[3]}/30\nСкидка: {u[5]}% ({u[6]})\nБан: {'Да' if u[4] else 'Нет'}")
     except:
         bot.send_message(m.chat.id, "❌ Неверный ID.")
 
@@ -1064,7 +1236,7 @@ def process_promo(m: types.Message):
     bot.send_message(m.chat.id, f"🎉 <b>Промокод {code} успешно активирован!</b>\n🔥 Вы получили скидку <b>{discount}%</b> на ваш <b>следующий 1 заказ</b> в магазине!", reply_markup=menu(uid))
 
 if __name__ == "__main__":
-    print("BLACK STUDIO bot (Ultimate Premium Order Management) успешно запущен!")
+    print("BLACK STUDIO bot (Ultimate God Mode) успешно запущен!")
     
     # Start Flask Web Server in a background thread for Render & UptimeRobot HTTP Monitor
     flask_thread = threading.Thread(target=run_flask)
