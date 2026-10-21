@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-BLACK STUDIO bot — Complete Store & Interactive Chat Edition (telebot)
+BLACK STUDIO bot — Ultimate Admin & Single-Use Promo Edition (telebot)
 pip install -r requirements.txt
 python bot_app.py
 """
@@ -14,7 +14,7 @@ import zipfile
 from telebot import TeleBot, types
 
 BOT_TOKEN = "8889779796:AAHlwmV3T6KB0_zi13UrRopG-XkI6zWlW_A"
-ADMIN_ID = 8543358373
+PRIMARY_ADMIN_ID = 8543358373
 OWNER_USERNAME = "@Evgenn010"
 OWNER_VK = "vk.ru/evgenn09"
 REVIEWS_URL = "https://t.me/BlackSTUDIOotziv"
@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS users (
     is_banned INTEGER DEFAULT 0,
     ref_by INTEGER,
     active_discount INTEGER DEFAULT 0,
-    active_promo_code TEXT DEFAULT ''
+    active_promo_code TEXT DEFAULT '',
+    is_admin INTEGER DEFAULT 0
 )
 """)
 cursor.execute("""
@@ -62,23 +63,33 @@ user_order_step = {}
 
 def get_user(uid, name="User"):
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-    cursor.execute("SELECT id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code FROM users WHERE id = ?", (uid,))
+    cursor.execute("SELECT id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code, is_admin FROM users WHERE id = ?", (uid,))
     row = cursor.fetchone()
     
     if not row:
-        cursor.execute("INSERT INTO users (id, name, last_reset, active_discount, active_promo_code) VALUES (?, ?, ?, 0, '')", (uid, name, today))
+        admin_flag = 1 if uid == PRIMARY_ADMIN_ID else 0
+        cursor.execute("INSERT INTO users (id, name, last_reset, active_discount, active_promo_code, is_admin) VALUES (?, ?, ?, 0, '', ?)", (uid, name, today, admin_flag))
         db.commit()
-        return (uid, 0, 30, 0, 0, '')
+        return (uid, 0, 30, 0, 0, '', admin_flag)
     else:
-        user_id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code = row
+        user_id, balance, comp_limit, last_reset, is_banned, active_discount, active_promo_code, admin_flag = row
+        if uid == PRIMARY_ADMIN_ID and not admin_flag:
+            cursor.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (uid,))
+            db.commit()
+            admin_flag = 1
+            
         if last_reset != today:
             cursor.execute("UPDATE users SET comp_limit = 30, last_reset = ? WHERE id = ?", (today, uid))
             db.commit()
-            return (user_id, balance, 30, is_banned, active_discount, active_promo_code)
-        return (user_id, balance, comp_limit, is_banned, active_discount, active_promo_code)
+            return (user_id, balance, 30, is_banned, active_discount, active_promo_code, admin_flag)
+        return (user_id, balance, comp_limit, is_banned, active_discount, active_promo_code, admin_flag)
 
 def is_admin(uid):
-    return uid == ADMIN_ID
+    if uid == PRIMARY_ADMIN_ID:
+        return True
+    cursor.execute("SELECT is_admin FROM users WHERE id = ?", (uid,))
+    res = cursor.fetchone()
+    return bool(res and res[0])
 
 def menu(uid):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -103,7 +114,7 @@ def head(emoji, title):
 def start_cmd(m: types.Message):
     u = m.from_user
     args = m.text.split()
-    _, _, _, banned, _, _ = get_user(u.id, u.first_name)
+    _, _, _, banned, _, _, _ = get_user(u.id, u.first_name)
     
     if banned:
         bot.send_message(m.chat.id, "❌ Вы заблокированы в этом боте администрацией.")
@@ -136,7 +147,7 @@ def main_router(m: types.Message):
     uid = m.from_user.id
     text = m.text
     user_data = get_user(uid, m.from_user.first_name)
-    balance, comp_limit, banned, active_discount, active_promo_code = user_data[1:]
+    balance, comp_limit, banned, active_discount, active_promo_code, admin_flag = user_data[1:]
 
     if banned:
         bot.send_message(m.chat.id, "❌ Вы заблокированы администрацией.")
@@ -158,11 +169,13 @@ def main_router(m: types.Message):
                 bot.send_message(m.chat.id, f"❌ Ошибка отправки сообщения: {e}")
 
     if text == "👤 Мой профиль":
-        promo_info = f"🔥 <b>Активный промокод:</b> <code>{active_promo_code}</code> ({active_discount}% скидки)" if active_discount > 0 else "❌ <b>Промокод не активирован</b>"
+        promo_info = f"🔥 <b>Промокод на скидку:</b> <code>{active_promo_code}</code> (-{active_discount}% на 1 следующий заказ)" if active_discount > 0 else "❌ <b>Промокод не активирован</b>"
+        role_str = "👑 Владелец / Администратор" if is_admin(uid) else "👤 Пользователь"
         msg = (
             head("👤", "Личный кабинет") +
             f"🆔 <b>Ваш ID:</b> <code>{uid}</code>\n"
             f"👤 <b>Имя:</b> {m.from_user.full_name}\n"
+            f"🔰 <b>Статус:</b> {role_str}\n"
             f"🔨 <b>Осталось компиляций на сегодня:</b> {comp_limit} / 30\n"
             f"💰 <b>Баланс баллов:</b> {balance}\n"
             f"{promo_info}\n\n"
@@ -171,7 +184,7 @@ def main_router(m: types.Message):
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
 
     elif text in ("🛍 Покупки", "🛍 Магазин (Buy list)"):
-        disc_text = f"\n🔥 <i>У вас активирована скидка {active_discount}% (промокод: {active_promo_code})!</i>" if active_discount > 0 else ""
+        disc_text = f"\n🔥 <i>У вас активирован промокод на скидку {active_discount}% ({active_promo_code})! Скидка применится к следующему заказу.</i>" if active_discount > 0 else ""
         msg = (
             head("🛍", "Официальный каталог Black Studio") +
             f"Выберите интересующий вас товар для просмотра подробностей, галереи скринов и быстрого оформления заказа:{disc_text}"
@@ -233,7 +246,7 @@ def main_router(m: types.Message):
             f"💬 <b>Отзывы:</b> {REVIEWS_URL}\n"
             f"👑 <b>Владелец (Telegram):</b> {OWNER_USERNAME}\n"
             f"👑 <b>Владелец (VK):</b> {OWNER_VK}\n\n"
-            "<i>Вы также можете просто отправить любое сообщение сюда в чат, и владелец ответит вам напрямую!</i>"
+            "<i>Вы также можете просто отправить любое сообщение сюда в чат, и администрация ответит вам напрямую!</i>"
         )
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
 
@@ -242,7 +255,7 @@ def main_router(m: types.Message):
             head("❓", "Инструкция по использованию") +
             "1️⃣ Перейдите в раздел <b>🛍 Покупки</b>, выберите нужный товар или мод.\n"
             "2️⃣ При заказе мода отправьте 1 сообщением все настройки сервера.\n"
-            "3️⃣ Активируйте промокод в разделе <b>🎁 Промокод</b> для получения скидки.\n"
+            "3️⃣ Активируйте промокод в разделе <b>🎁 Промокод</b> для получения скидки на 1 заказ.\n"
             "4️⃣ Компилируйте `.pwn` и JNI `.so` файлы прямо через бота.\n\n"
             f"По всем вопросам: {OWNER_USERNAME}"
         )
@@ -257,6 +270,8 @@ def main_router(m: types.Message):
         markup.add(
             types.InlineKeyboardButton("📊 Статистика", callback_data="adm_stats"),
             types.InlineKeyboardButton("📢 Рассылка", callback_data="adm_broadcast"),
+            types.InlineKeyboardButton("👑 Выдать админку", callback_data="adm_giveadmin"),
+            types.InlineKeyboardButton("❌ Снять админку", callback_data="adm_removeadmin"),
             types.InlineKeyboardButton("➕ Создать промо", callback_data="adm_addpromo"),
             types.InlineKeyboardButton("📋 Список промо", callback_data="adm_listpromo"),
             types.InlineKeyboardButton("🗑 Удалить промо", callback_data="adm_delpromo"),
@@ -266,7 +281,7 @@ def main_router(m: types.Message):
             types.InlineKeyboardButton("🔨 Бан юзера", callback_data="adm_ban"),
             types.InlineKeyboardButton("🔓 Разбан юзера", callback_data="adm_unban"),
             types.InlineKeyboardButton("📨 Сообщение юзеру", callback_data="adm_sendto"),
-            types.InlineKeyboardButton("❌ Очистить базу", callback_data="adm_clearpromo")
+            types.InlineKeyboardButton("❌ Очистить промо", callback_data="adm_clearpromo")
         )
         bot.send_message(m.chat.id, msg, reply_markup=markup)
 
@@ -285,8 +300,8 @@ def main_router(m: types.Message):
                     f"{LINE}\n"
                     f"<i>Ответьте на это сообщение в боте, чтобы написать пользователю в ЛС!</i>"
                 )
-                bot.send_message(ADMIN_ID, fwd_text)
-                bot.send_message(m.chat.id, "✅ Ваше сообщение отправлено владельцу! Ожидайте ответа.")
+                bot.send_message(PRIMARY_ADMIN_ID, fwd_text)
+                bot.send_message(m.chat.id, "✅ Ваше сообщение отправлено администрации! Ожидайте ответа.")
             except Exception as e:
                 logging.error(f"Error forwarding message to admin: {e}")
 
@@ -467,13 +482,16 @@ def callback_router(call: types.CallbackQuery):
         total_promos = cursor.fetchone()[0]
         cursor.execute("SELECT SUM(balance) FROM users")
         total_bal = cursor.fetchone()[0] or 0
+        cursor.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1")
+        total_admins = cursor.fetchone()[0]
         
         msg = (
             head("📊", "Статистика бота") +
             f"👥 Всего пользователей: <b>{total_users}</b>\n"
+            f"👑 Всего администраторов: <b>{total_admins}</b>\n"
             f"🎁 Активных промокодов: <b>{total_promos}</b>\n"
             f"💰 Общий баланс баллов у всех: <b>{total_bal}</b>\n"
-            f"🟢 Статус сервера: <b>Работает стабильно (Render)</b>"
+            f"🟢 Статус сервера: <b>Работает отлично (Render)</b>"
         )
         bot.answer_callback_query(call.id)
         bot.send_message(call.message.chat.id, msg)
@@ -481,6 +499,14 @@ def callback_router(call: types.CallbackQuery):
     elif data == "adm_broadcast":
         msg = bot.send_message(call.message.chat.id, "📢 Введите текст рассылки для всех пользователей:")
         bot.register_next_step_handler(msg, execute_broadcast)
+
+    elif data == "adm_giveadmin":
+        msg = bot.send_message(call.message.chat.id, "👑 Введите Telegram ID пользователя, которому хотите выдать права администратора:")
+        bot.register_next_step_handler(msg, give_admin_handler)
+
+    elif data == "adm_removeadmin":
+        msg = bot.send_message(call.message.chat.id, "❌ Введите Telegram ID пользователя, у которого хотите снять права администратора:")
+        bot.register_next_step_handler(msg, remove_admin_handler)
 
     elif data == "adm_addpromo":
         msg = bot.send_message(call.message.chat.id, "➕ Введите промокод, скидку (%) и лимит людей через пробел:\nПример: <code>BLACK50 50 100</code>")
@@ -537,7 +563,7 @@ def process_order_final(m: types.Message):
     order_code = user_order_step.get(uid, "unknown")
     details_text = m.text.strip()
     
-    # Check user discount
+    # Get user discount details
     u_data = get_user(uid, m.from_user.first_name)
     active_discount, active_promo_code = u_data[4], u_data[5]
 
@@ -573,6 +599,10 @@ def process_order_final(m: types.Message):
     if active_discount > 0:
         final_price = int(orig_price * (100 - active_discount) / 100)
         price_str = f"<s>{orig_price} {currency}</s> 🔥 <b>{final_price} {currency}</b> (СО СКИДКОЙ по промокоду <code>{active_promo_code}</code> -{active_discount}%)"
+        
+        # Burn discount right after applying to 1 order
+        cursor.execute("UPDATE users SET active_discount = 0, active_promo_code = '' WHERE id = ?", (uid,))
+        db.commit()
     else:
         price_str = f"<b>{orig_price} {currency}</b>"
 
@@ -582,14 +612,13 @@ def process_order_final(m: types.Message):
         f"🛍 <b>Товар:</b> {item_title}\n"
         f"💰 <b>К оплате:</b> {price_str}\n\n"
         f"📋 <b>Ваши данные настройки:</b>\n{details_text}\n\n"
-        f"📩 <i>Информация о вашем заказе отправлена владельцу ({OWNER_USERNAME}). Скоро с вами свяжутся!</i>",
+        f"📩 <i>Информация о вашем заказе отправлена администрации ({OWNER_USERNAME}). Скоро с вами свяжутся!</i>",
         reply_markup=menu(uid)
     )
     
     try:
         username_str = f"@{m.from_user.username}" if m.from_user.username else "Отсутствует"
-        
-        discount_alert = f"\n🏷 <b>ПРИМЕНЕНА СКИДКА:</b> {active_discount}% (Промокод: <code>{active_promo_code}</code>)" if active_discount > 0 else ""
+        discount_alert = f"\n🏷 <b>ПРИМЕНЕНА СКИДКА:</b> {active_discount}% (Промокод: <code>{active_promo_code}</code> — сгорел после заказа)" if active_discount > 0 else ""
 
         admin_order_msg = (
             f"🛒 <b>ПОСТУПИЛ НОВЫЙ ЗАКАЗ ИЗ МАГАЗИНА!</b>\n"
@@ -606,14 +635,14 @@ def process_order_final(m: types.Message):
         reply_markup = types.InlineKeyboardMarkup()
         reply_markup.add(types.InlineKeyboardButton("📨 Написать клиенту", url=f"tg://user?id={uid}"))
         
-        bot.send_message(ADMIN_ID, admin_order_msg, reply_markup=reply_markup)
+        bot.send_message(PRIMARY_ADMIN_ID, admin_order_msg, reply_markup=reply_markup)
     except Exception as e:
         logging.error(f"Error sending order notification to admin: {e}")
 
 @bot.message_handler(content_types=['document'])
 def process_compilation(m: types.Message):
     uid = m.from_user.id
-    _, _, limit, banned, _, _ = get_user(uid, m.from_user.first_name)
+    _, _, limit, banned, _, _, _ = get_user(uid, m.from_user.first_name)
 
     if banned:
         bot.send_message(m.chat.id, "❌ Вы заблокированы.")
@@ -754,6 +783,31 @@ def process_compilation(m: types.Message):
             if os.path.exists(work_dir):
                 shutil.rmtree(work_dir, ignore_errors=True)
 
+def give_admin_handler(m: types.Message):
+    try:
+        target_id = int(m.text.strip())
+        cursor.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (target_id,))
+        db.commit()
+        bot.send_message(m.chat.id, f"👑 Пользователю <code>{target_id}</code> успешно выданы права администратора!")
+        try:
+            bot.send_message(target_id, "👑 <b>Вам выданы права администратора в боте!</b>\nНажмите /start для обновления меню.")
+        except:
+            pass
+    except Exception:
+        bot.send_message(m.chat.id, "❌ Ошибка! Введите корректный Telegram ID (число).")
+
+def remove_admin_handler(m: types.Message):
+    try:
+        target_id = int(m.text.strip())
+        if target_id == PRIMARY_ADMIN_ID:
+            bot.send_message(m.chat.id, "❌ Нельзя снять права у главного владельца проекта!")
+            return
+        cursor.execute("UPDATE users SET is_admin = 0 WHERE id = ?", (target_id,))
+        db.commit()
+        bot.send_message(m.chat.id, f"❌ Права администратора с пользователя <code>{target_id}</code> успешно сняты.")
+    except Exception:
+        bot.send_message(m.chat.id, "❌ Ошибка! Введите корректный Telegram ID (число).")
+
 def save_new_promo(m: types.Message):
     try:
         parts = m.text.strip().split()
@@ -786,12 +840,13 @@ def add_balance_handler(m: types.Message):
 def user_info_handler(m: types.Message):
     try:
         uid = int(m.text.strip())
-        cursor.execute("SELECT id, name, balance, comp_limit, is_banned, active_discount, active_promo_code FROM users WHERE id = ?", (uid,))
+        cursor.execute("SELECT id, name, balance, comp_limit, is_banned, active_discount, active_promo_code, is_admin FROM users WHERE id = ?", (uid,))
         u = cursor.fetchone()
         if not u:
             bot.send_message(m.chat.id, "❌ Пользователь не найден в базе.")
             return
-        bot.send_message(m.chat.id, f"👤 <b>Инфо о юзере:</b>\nID: <code>{u[0]}</code>\nИмя: {u[1]}\nБаланс: {u[2]}\nЛимит: {u[3]}/30\nСкидка: {u[5]}% ({u[6]})\nБан: {'Да' if u[4] else 'Нет'}")
+        admin_str = "Да 👑" if u[7] else "Нет"
+        bot.send_message(m.chat.id, f"👤 <b>Инфо о юзере:</b>\nID: <code>{u[0]}</code>\nИмя: {u[1]}\nАдмин: {admin_str}\nБаланс: {u[2]}\nЛимит: {u[3]}/30\nСкидка: {u[5]}% ({u[6]})\nБан: {'Да' if u[4] else 'Нет'}")
     except:
         bot.send_message(m.chat.id, "❌ Неверный ID.")
 
@@ -867,8 +922,8 @@ def process_promo(m: types.Message):
     cursor.execute("INSERT INTO used_promo (user_id, code) VALUES (?, ?)", (uid, code))
     cursor.execute("UPDATE users SET active_discount = ?, active_promo_code = ? WHERE id = ?", (discount, code, uid))
     db.commit()
-    bot.send_message(m.chat.id, f"🎉 <b>Промокод {code} успешно активирован!</b>\n🔥 Вы получили постоянную скидку <b>{discount}%</b> на все покупки в магазине!", reply_markup=menu(uid))
+    bot.send_message(m.chat.id, f"🎉 <b>Промокод {code} успешно активирован!</b>\n🔥 Вы получили скидку <b>{discount}%</b> на ваш <b>следующий 1 заказ</b> в магазине!", reply_markup=menu(uid))
 
 if __name__ == "__main__":
-    print("BLACK STUDIO bot (Store & Interactive Chat Edition) успешно запущен!")
+    print("BLACK STUDIO bot (Ultimate Admin Edition) успешно запущен!")
     bot.infinity_polling()
