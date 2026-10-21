@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-BLACK STUDIO bot — Real NDK Compiler & ZIP Output Edition (telebot)
+BLACK STUDIO bot — Store & Order System Edition with Site Details (telebot)
 pip install -r requirements.txt
 python bot_app.py
 """
@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS used_promo (
 db.commit()
 
 user_temp_mode = {}
+user_order_step = {}
 
 def get_user(uid, name="User"):
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
@@ -80,8 +81,8 @@ def is_admin(uid):
 def menu(uid):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
-        types.KeyboardButton("👤 Мой профиль"),
         types.KeyboardButton("🛍 Магазин (Buy list)"),
+        types.KeyboardButton("👤 Мой профиль"),
         types.KeyboardButton("🔨 PWN Compiler"),
         types.KeyboardButton("⚙️ JNI Compiler"),
         types.KeyboardButton("🎁 Промокод"),
@@ -124,7 +125,7 @@ def start_cmd(m: types.Message):
         head("🖐", f"Добро пожаловать в {BOT_NAME}!") +
         "Лучшая студия скриптинга, разработки и игровых сборок.\n\n"
         "▫️ Ежедневный лимит бесплатных компиляций: <b>30 раз в день</b>.\n"
-        "▫️ Выбирайте нужный инструмент в меню ниже 👇"
+        "▫️ Выбирайте нужный раздел в меню ниже 👇"
     )
     bot.send_message(m.chat.id, text, reply_markup=menu(u.id))
 
@@ -150,28 +151,21 @@ def main_router(m: types.Message):
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
 
     elif text == "🛍 Магазин (Buy list)":
-        price_text = (
-            head("🛍", "Официальный прайс-лист Black Studio") +
-            "<b>📱 Моды (mobile):</b>\n"
-            "• Black Russia 2025-26 (планшет): 140 ⭐ (без pwn 100 ₽) (с pwn 150 ₽)\n"
-            "• Black Russia 2025 (без планшета): 120 ⭐ (без pwn 60 ₽) (с pwn 90 ₽)\n"
-            "• Black Russia 2025 (без планшета, роботы фулл): 100 ⭐ (без pwn 80 ₽) (с pwn 130 ₽)\n\n"
-            "<b>💻 Моды (ПК):</b>\n"
-            "• Радмир 8.4: 100 ⭐ (без pwn 90 ₽) (с pwn 150 ₽)\n\n"
-            "<b>🌐 Форумы (50 ⭐ / 40 ₽ каждый):</b>\n"
-            "• Black Russia Forum, Gold Russia, Live Russia, Матрёшка РП, Суровая Россия, Amazing RP, CRMP-ONLINE, Rage Russia\n\n"
-            "<b>🌍 Сайты (50 ⭐ / 38 ₽ каждый):</b>\n"
-            "• Copy Black Russia (old), King Russia, Online Russia, Rage Russia\n\n"
-            "<b>⚙️ Прочее (50 ⭐ / 40 ₽ каждый):</b>\n"
-            "• Ваш стиль на форум\n• Поставить ваш мод на сервер\n• Сделать / подключить лаунчер\n"
-            "<i>Другое: пишите в ЛС для расчета стоимости.</i>\n\n"
-            "📌 <b>Примечание:</b> Обязательно наличие своего хостинга! Возможна оплата в рублях напрямую на хостинг.\n\n"
-            f"👑 <b>Контакты для покупки:</b>\n"
-            f"• Telegram: {OWNER_USERNAME}\n"
-            f"• VK: {OWNER_VK}\n"
-            f"• Отзывы: {REVIEWS_URL}"
+        msg = (
+            head("🛍", "Официальный магазин Black Studio") +
+            "Выберите интересующий вас товар для просмотра подробностей, галереи скринов и быстрого оформления заказа:"
         )
-        bot.send_message(m.chat.id, price_text, reply_markup=menu(uid))
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("📱 BR 2025-26 (с планшетом) · 140 ⭐ / 100-150 ₽", callback_data="buy_br2026"),
+            types.InlineKeyboardButton("📱 BR 2025 (без планшета) · 120 ⭐ / 60-90 ₽", callback_data="buy_br2025"),
+            types.InlineKeyboardButton("📱 BR 2025 (роботы фулл) · 100 ⭐ / 80-130 ₽", callback_data="buy_br2025_robots"),
+            types.InlineKeyboardButton("💻 Мод Радмир 8.4 (ПК) · 100 ⭐ / 90-150 ₽", callback_data="buy_radmir"),
+            types.InlineKeyboardButton("🌐 Готовый Форум · 50 ⭐ / 40 ₽", callback_data="buy_forum"),
+            types.InlineKeyboardButton("🌍 Готовый Сайт · 50 ⭐ / 38 ₽", callback_data="buy_site"),
+            types.InlineKeyboardButton("⚙️ Лаунчер / Установка мода / Стиль · 50 ⭐ / 40 ₽", callback_data="buy_other")
+        )
+        bot.send_message(m.chat.id, msg, reply_markup=markup)
 
     elif text == "🔨 PWN Compiler":
         user_temp_mode[uid] = "PWN"
@@ -224,9 +218,9 @@ def main_router(m: types.Message):
     elif text == "❓ Как пользоваться":
         msg = (
             head("❓", "Инструкция по использованию") +
-            "1️⃣ Нажмите <b>🔨 PWN Compiler</b> для компиляции `.pwn` скриптов.\n"
-            "2️⃣ Нажмите <b>⚙️ JNI Compiler</b>, выберите NDK и отправьте архив с исходниками.\n"
-            "3️⃣ Бот скомпилирует проект и упакует результат в архив с готовой `.so` библиотекой по структуре `libs/arm64-v8a/`!\n\n"
+            "1️⃣ Перейдите в <b>🛍 Магазин</b>, выберите товар и оформите заказ в 2 клика.\n"
+            "2️⃣ Используйте <b>🔨 PWN Compiler</b> для быстрой компиляции `.pwn` скриптов.\n"
+            "3️⃣ В <b>⚙️ JNI Compiler</b> отправляйте исходники для сборки `.so` библиотек.\n\n"
             f"По всем вопросам: {OWNER_USERNAME}"
         )
         bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
@@ -257,6 +251,146 @@ def main_router(m: types.Message):
 def callback_router(call: types.CallbackQuery):
     uid = call.from_user.id
     data = call.data
+
+    if data == "buy_br2026":
+        msg = (
+            head("📱", "Black Russia 2025-2026 (с планшетом)") +
+            "🔥 <b>Лучший мобильный мод CRMP!</b>\n\n"
+            "📌 <b>В комплект входит:</b>\n"
+            "• Новейшая система планшета (BR Tablet)\n"
+            "• Полноценный скрипт + базы данных\n"
+            "• Полная оптимизация под хостинги\n\n"
+            "💰 <b>Стоимость:</b>\n"
+            "⭐ <b>140 Telegram Stars</b>\n"
+            "💵 <b>Без PWN:</b> 100 ₽\n"
+            "💵 <b>С исходником (.pwn):</b> 150 ₽\n\n"
+            "🖼 <b>Скриншоты проекта:</b>\n"
+            "https://postimg.cc/gallery/0yngT7c"
+        )
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("⭐ Купить за Stars (140 Stars)", callback_data="order_stars_br2026"),
+            types.InlineKeyboardButton("💳 Купить в ₽ (без pwn - 100 ₽)", callback_data="order_rub_br2026_nopwn"),
+            types.InlineKeyboardButton("💳 Купить в ₽ (с pwn - 150 ₽)", callback_data="order_rub_br2026_pwn"),
+            types.InlineKeyboardButton("🖼 Открыть галерею скриншотов", url="https://postimg.cc/gallery/0yngT7c"),
+            types.InlineKeyboardButton("◀️ Назад в магазин", callback_data="back_to_shop")
+        )
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=msg, reply_markup=markup)
+        return
+
+    elif data == "buy_br2025":
+        msg = (
+            head("📱", "Black Russia 2025 (без планшета)") +
+            "📌 <b>Классический стабильный мод Black Russia!</b>\n\n"
+            "💰 <b>Стоимость:</b>\n"
+            "⭐ <b>120 Telegram Stars</b>\n"
+            "💵 <b>Без PWN:</b> 60 ₽\n"
+            "💵 <b>С исходником (.pwn):</b> 90 ₽"
+        )
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("⭐ Купить за Stars (120 Stars)", callback_data="order_stars_br2025"),
+            types.InlineKeyboardButton("💳 Купить в ₽ (без pwn - 60 ₽)", callback_data="order_rub_br2025_nopwn"),
+            types.InlineKeyboardButton("💳 Купить в ₽ (с pwn - 90 ₽)", callback_data="order_rub_br2025_pwn"),
+            types.InlineKeyboardButton("◀️ Назад в магазин", callback_data="back_to_shop")
+        )
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=msg, reply_markup=markup)
+        return
+
+    elif data == "buy_br2025_robots":
+        msg = (
+            head("📱", "Black Russia 2025 (роботы фулл)") +
+            "📌 <b>Мод с полностью настроенными ботами и системами!</b>\n\n"
+            "💰 <b>Стоимость:</b>\n"
+            "⭐ <b>100 Telegram Stars</b>\n"
+            "💵 <b>Без PWN:</b> 80 ₽\n"
+            "💵 <b>С исходником (.pwn):</b> 130 ₽"
+        )
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("⭐ Купить за Stars (100 Stars)", callback_data="order_stars_br2025_robots"),
+            types.InlineKeyboardButton("💳 Купить в ₽ (без pwn - 80 ₽)", callback_data="order_rub_br2025_robots_nopwn"),
+            types.InlineKeyboardButton("💳 Купить в ₽ (с pwn - 130 ₽)", callback_data="order_rub_br2025_robots_pwn"),
+            types.InlineKeyboardButton("◀️ Назад в магазин", callback_data="back_to_shop")
+        )
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=msg, reply_markup=markup)
+        return
+
+    elif data == "buy_radmir":
+        msg = (
+            head("💻", "Мод Радмир 8.4 (ПК)") +
+            "📌 <b>Полноценный мод Радмир РП 8.4 под ПК платформу!</b>\n\n"
+            "💰 <b>Стоимость:</b>\n"
+            "⭐ <b>100 Telegram Stars</b>\n"
+            "💵 <b>Без PWN:</b> 90 ₽\n"
+            "💵 <b>С исходником (.pwn):</b> 150 ₽"
+        )
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("⭐ Купить за Stars (100 Stars)", callback_data="order_stars_radmir"),
+            types.InlineKeyboardButton("💳 Купить в ₽ (без pwn - 90 ₽)", callback_data="order_rub_radmir_nopwn"),
+            types.InlineKeyboardButton("💳 Купить в ₽ (с pwn - 150 ₽)", callback_data="order_rub_radmir_pwn"),
+            types.InlineKeyboardButton("◀️ Назад в магазин", callback_data="back_to_shop")
+        )
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=msg, reply_markup=markup)
+        return
+
+    elif data in ("buy_forum", "buy_site", "buy_other"):
+        items_map = {
+            "buy_forum": ("🌐 Готовый Форум", "Black Russia, Gold Russia, Live Russia, Матрёшка, Суровая Россия, Amazing, CRMP-ONLINE, Rage", "50 ⭐", "40 ₽"),
+            "buy_site": ("🌍 Готовый Сайт", "Copy Black Russia (old), King Russia, Online Russia, Rage Russia", "50 ⭐", "38 ₽"),
+            "buy_other": ("⚙️ Прочие услуги", "Ваш стиль на форум, Установка мода на сервер, Создание/Подключение лаунчера", "50 ⭐", "40 ₽")
+        }
+        title, desc, price_stars, price_rub = items_map[data]
+        msg = (
+            head("🛍", title) +
+            f"📌 <b>Доступные варианты:</b>\n{desc}\n\n"
+            f"💰 <b>Стоимость:</b> {price_stars} / {price_rub}"
+        )
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton(f"⭐ Купить за Stars ({price_stars})", callback_data=f"order_stars_gen_{data}"),
+            types.InlineKeyboardButton(f"💳 Купить в ₽ ({price_rub})", callback_data=f"order_rub_gen_{data}"),
+            types.InlineKeyboardButton("◀️ Назад в магазин", callback_data="back_to_shop")
+        )
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=msg, reply_markup=markup)
+        return
+
+    elif data == "back_to_shop":
+        msg = (
+            head("🛍", "Официальный магазин Black Studio") +
+            "Выберите интересующий вас товар для просмотра подробностей, галереи скринов и быстрого оформления заказа:"
+        )
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("📱 BR 2025-26 (с планшетом) · 140 ⭐ / 100-150 ₽", callback_data="buy_br2026"),
+            types.InlineKeyboardButton("📱 BR 2025 (без планшета) · 120 ⭐ / 60-90 ₽", callback_data="buy_br2025"),
+            types.InlineKeyboardButton("📱 BR 2025 (роботы фулл) · 100 ⭐ / 80-130 ₽", callback_data="buy_br2025_robots"),
+            types.InlineKeyboardButton("💻 Мод Радмир 8.4 (ПК) · 100 ⭐ / 90-150 ₽", callback_data="buy_radmir"),
+            types.InlineKeyboardButton("🌐 Готовый Форум · 50 ⭐ / 40 ₽", callback_data="buy_forum"),
+            types.InlineKeyboardButton("🌍 Готовый Сайт · 50 ⭐ / 38 ₽", callback_data="buy_site"),
+            types.InlineKeyboardButton("⚙️ Лаунчер / Установка мода / Стиль · 50 ⭐ / 40 ₽", callback_data="buy_other")
+        )
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=msg, reply_markup=markup)
+        return
+
+    elif data.startswith("order_"):
+        order_details = data.replace("order_", "")
+        user_order_step[uid] = order_details
+        
+        bot.answer_callback_query(call.id, "Оформление заказа...")
+        
+        # Adaptive hint depending on item type (Site vs Forum vs Mod)
+        if "site" in order_details:
+            prompt_text = "🌐 <b>Напишите ответным сообщением название проекта для вашего САЙТА</b> (например: <i>PRINCE RUSSIA</i>):"
+        elif "forum" in order_details:
+            prompt_text = "🌐 <b>Напишите ответным сообщением название проекта для вашего ФОРУМА</b> (например: <i>SPB ONLINE FORUM</i>):"
+        else:
+            prompt_text = "✏️ <b>Напишите ответным сообщением название вашего проекта/сервера</b> (или пожелания к заказу):"
+
+        msg = bot.send_message(call.message.chat.id, prompt_text)
+        bot.register_next_step_handler(msg, process_order_final)
+        return
 
     if data.startswith("ndk_"):
         ndk_version = data.replace("ndk_", "").upper()
@@ -345,6 +479,74 @@ def callback_router(call: types.CallbackQuery):
         db.commit()
         bot.answer_callback_query(call.id, "🗑 Вся база промокодов полностью очищена!", show_alert=True)
 
+def process_order_final(m: types.Message):
+    uid = m.from_user.id
+    order_code = user_order_step.get(uid, "unknown")
+    project_name = m.text.strip()
+    
+    order_info_map = {
+        "stars_br2026": ("Black Russia 2025-26 (с планшетом)", "140 Telegram Stars"),
+        "rub_br2026_nopwn": ("Black Russia 2025-26 (с планшетом, без PWN)", "100 ₽"),
+        "rub_br2026_pwn": ("Black Russia 2025-26 (с планшетом, с PWN)", "150 ₽"),
+        
+        "stars_br2025": ("Black Russia 2025 (без планшета)", "120 Telegram Stars"),
+        "rub_br2025_nopwn": ("Black Russia 2025 (без планшета, без PWN)", "60 ₽"),
+        "rub_br2025_pwn": ("Black Russia 2025 (без планшета, с PWN)", "90 ₽"),
+        
+        "stars_br2025_robots": ("Black Russia 2025 (роботы фулл)", "100 Telegram Stars"),
+        "rub_br2025_robots_nopwn": ("Black Russia 2025 (роботы фулл, без PWN)", "80 ₽"),
+        "rub_br2025_robots_pwn": ("Black Russia 2025 (роботы фулл, с PWN)", "130 ₽"),
+        
+        "stars_radmir": ("Мод Радмир 8.4 (ПК)", "100 Telegram Stars"),
+        "rub_radmir_nopwn": ("Мод Радмир 8.4 (ПК, без PWN)", "90 ₽"),
+        "rub_radmir_pwn": ("Мод Радмир 8.4 (ПК, с PWN)", "150 ₽"),
+        
+        "stars_gen_buy_forum": ("Готовый Форум", "50 Telegram Stars"),
+        "rub_gen_buy_forum": ("Готовый Форум", "40 ₽"),
+        
+        "stars_gen_buy_site": ("Готовый Сайт", "50 Telegram Stars"),
+        "rub_gen_buy_site": ("Готовый Сайт", "38 ₽"),
+        
+        "stars_gen_buy_other": ("Услуга / Лаунчер / Стиль", "50 Telegram Stars"),
+        "rub_gen_buy_other": ("Услуга / Лаунчер / Стиль", "40 ₽"),
+    }
+    
+    item_title, price_str = order_info_map.get(order_code, ("Товар из магазина", "Расчет стоимости"))
+    
+    label_field = "Название для САЙТА/проекта" if "site" in order_code else ("Название для ФОРУМА/проекта" if "forum" in order_code else "Название проекта/сервера")
+
+    bot.send_message(
+        m.chat.id,
+        f"✅ <b>Заказ успешно зарегистрирован!</b>\n\n"
+        f"🛍 <b>Товар:</b> {item_title}\n"
+        f"💰 <b>К оплате:</b> {price_str}\n"
+        f"📝 <b>{label_field}:</b> {project_name}\n\n"
+        f"📩 <i>Информация о вашем заказе и реквизиты отправлены владельцу ({OWNER_USERNAME}). Скоро с вами свяжутся!</i>",
+        reply_markup=menu(uid)
+    )
+    
+    try:
+        username_str = f"@{m.from_user.username}" if m.from_user.username else "Отсутствует"
+        
+        admin_order_msg = (
+            f"🛒 <b>ПОСТУПИЛ НОВЫЙ ЗАКАЗ ИЗ МАГАЗИНА!</b>\n"
+            f"{LINE}\n"
+            f"👤 <b>Ник:</b> {m.from_user.full_name}\n"
+            f"🔗 <b>Юзернейм:</b> {username_str}\n"
+            f"🆔 <b>Айди аккаунта:</b> <code>{uid}</code>\n\n"
+            f"🛍 <b>Что хочет купить:</b> {item_title}\n"
+            f"💵 <b>Сколько стоит:</b> {price_str}\n"
+            f"🌐 <b>{label_field}:</b> <code>{project_name}</code>\n"
+            f"{LINE}"
+        )
+        
+        reply_markup = types.InlineKeyboardMarkup()
+        reply_markup.add(types.InlineKeyboardButton("📨 Написать клиенту", url=f"tg://user?id={uid}"))
+        
+        bot.send_message(ADMIN_ID, admin_order_msg, reply_markup=reply_markup)
+    except Exception as e:
+        logging.error(f"Error sending order notification to admin: {e}")
+
 @bot.message_handler(content_types=['document'])
 def process_compilation(m: types.Message):
     uid = m.from_user.id
@@ -418,7 +620,6 @@ def process_compilation(m: types.Message):
         os.makedirs(work_dir, exist_ok=True)
         
         try:
-            # Download file from user
             file_info = bot.get_file(m.document.file_id)
             downloaded_file = bot.download_file(file_info.file_path)
             
@@ -436,10 +637,7 @@ def process_compilation(m: types.Message):
                      f"🔄 <i>Шаг 2/3: Компиляция в .so под архитектуру {arch_dir}...</i>"
             )
             
-            # Check if system ndk-build exists, otherwise execute internal native build routine
             ndk_build_bin = shutil.which("ndk-build")
-            
-            # Prepare internal structure: libs/arm64-v8a/libplugin.so
             libs_dir = os.path.join(work_dir, "libs", arch_dir)
             os.makedirs(libs_dir, exist_ok=True)
             
@@ -457,14 +655,12 @@ def process_compilation(m: types.Message):
                 except Exception:
                     pass
             
-            # Ensure valid ELF binary .so exists
             if not os.path.exists(so_file_path):
                 with open(so_file_path, "wb") as f:
                     f.write(b'\x7fELF\x02\x01\x01\x00' + b'\x00' * 8 + b'\x03\x00\xb7\x00' + b'\x00' * 100 + b'BLACK_STUDIO_REAL_JNI_COMPILED_LIB')
             
             time.sleep(1.5)
             
-            # Pack into final ZIP structure
             with zipfile.ZipFile(out_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 zipf.write(so_file_path, os.path.join(f"complex_ndk-{ndk_ver}_{arch_dir}", "libs", arch_dir, clean_name))
                 
@@ -606,10 +802,10 @@ def process_promo(m: types.Message):
     else:
         cursor.execute("UPDATE promo SET used_count = ? WHERE code = ?", (new_used, code))
     
-    cursor.execute("INSERT INTO used_promo (user_id, code) VALUES ?", (uid, code))
+    cursor.execute("INSERT INTO used_promo (user_id, code) VALUES (?, ?)", (uid, code))
     db.commit()
     bot.send_message(m.chat.id, f"✅ Промокод успешно активирован!\n🔥 Ваша скидка: <b>{discount}%</b> у владельца {OWNER_USERNAME}", reply_markup=menu(uid))
 
 if __name__ == "__main__":
-    print("BLACK STUDIO bot (Real NDK Compiler & ZIP Output Edition) успешно запущен!")
+    print("BLACK STUDIO bot (Store & Order System Edition) успешно запущен!")
     bot.infinity_polling()
