@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-BLACK STUDIO SHOP — Ultimate Edition 2026
+BLACK STUDIO SHOP — Ultimate Fixed Buttons Edition 2026
 """
 import os
 import sys
@@ -109,25 +109,6 @@ CREATE TABLE IF NOT EXISTS orders (
     created_at TEXT
 )
 """)
-
-# Миграция таблицы orders если старая без колонок
-cols_to_check = [
-    ("server_name", "TEXT DEFAULT ''"),
-    ("project_name", "TEXT DEFAULT ''"),
-    ("bonus_virt", "TEXT DEFAULT ''"),
-    ("donate_amount", "TEXT DEFAULT ''"),
-    ("tgk", "TEXT DEFAULT ''"),
-    ("vk", "TEXT DEFAULT ''"),
-    ("site", "TEXT DEFAULT ''"),
-    ("vip", "TEXT DEFAULT ''"),
-    ("lvl", "TEXT DEFAULT ''")
-]
-for col, ctype in cols_to_check:
-    try:
-        cursor.execute(f"SELECT {col} FROM orders LIMIT 1")
-    except sqlite3.OperationalError:
-        cursor.execute(f"ALTER TABLE orders ADD COLUMN {col} {ctype}")
-        db.commit()
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS promo (
@@ -341,13 +322,14 @@ def restart_bot_cmd(m: types.Message):
     bot.send_message(m.chat.id, "🔄 Перезапуск бота...")
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
-# ==================== ОБРАБОТЧИКИ КНОПОК МЕНЮ ====================
+# ==================== ТЕКСТОВЫЕ ОБРАБОТЧИКИ КНОПОК РЕПЛАЙ МЕНЮ ====================
 
 @bot.message_handler(func=lambda m: m.text in ("🛍 Каталог Проектов", "🛍 Покупки"))
-def shop_handler(m: types.Message):
-    uid = m.from_user.id
-    user_temp_mode.pop(uid, None)
-    u_data = get_user(uid, m.from_user.first_name)
+def shop_handler_text(m: types.Message):
+    show_catalog(m.chat.id, m.from_user.id)
+
+def show_catalog(chat_id, uid):
+    u_data = get_user(uid, "User")
     active_discount, active_promo_code = int(u_data[6] or 0), u_data[7]
     disc_text = f"\n🔥 <i>Активна скидка {active_discount}% ({active_promo_code})!</i>" if active_discount > 0 else ""
     msg = (
@@ -364,28 +346,32 @@ def shop_handler(m: types.Message):
         types.InlineKeyboardButton("🌍 Готовый Сайт · 50 ⭐ / 38 ₽", callback_data="buy_site"),
         types.InlineKeyboardButton("⚙️ Лаунчер / Установка мода / Стиль · 50 ⭐ / 40 ₽", callback_data="buy_other")
     )
-    bot.send_message(m.chat.id, msg, reply_markup=markup)
+    bot.send_message(chat_id, msg, reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text in ("📦 Мои Заказы", "📦 Заказы"))
-def orders_handler(m: types.Message):
-    uid = m.from_user.id
-    user_temp_mode.pop(uid, None)
+def orders_handler_text(m: types.Message):
+    show_orders(m.chat.id, m.from_user.id)
+
+def show_orders(chat_id, uid):
     cursor.execute("SELECT id, item_title, price_str, status, created_at, server_name, project_name FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 10", (uid,))
     orders_list = cursor.fetchall()
     if not orders_list:
-        bot.send_message(m.chat.id, head("📦", "BLACK STUDIO SHOP — Ваши Заказы") + "У вас пока нет оформленных заказов.", reply_markup=menu(uid))
+        bot.send_message(chat_id, head("📦", "BLACK STUDIO SHOP — Ваши Заказы") + "У вас пока нет оформленных заказов.", reply_markup=menu(uid))
         return
         
     msg = head("📦", "BLACK STUDIO SHOP — История Заказов")
     for o in orders_list:
-        msg += f"📑 <b>Заказ #{o[0]}</b> | {o[4]}\n🛍 <b>Товар:</b> {o[1]}\n🌐 <b>Проект:</b> {o[6]} ({o[5]})\n💵 <b>Сумма:</b> {o[2]}\n📌 <b>Статус:</b> {o[3]}\n{LINE}\n"
-    bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
+        msg += f"📑 <b>Заказ #{o[0]}</b> | {o[4]}\n🛍 <b>Товар:</b> {o[1]}\n🌐 <b>Проект:</b> {o[6]} ({o[5]}\n💵 <b>Сумма:</b> {o[2]}\n📌 <b>Статус:</b> {o[3]}\n{LINE}\n"
+    bot.send_message(chat_id, msg, reply_markup=menu(uid))
 
 @bot.message_handler(func=lambda m: m.text == "👤 Мой Профиль")
-def profile_handler(m: types.Message):
-    uid = m.from_user.id
-    uname = f"@{m.from_user.username}" if m.from_user.username else ""
-    u_data = get_user(uid, m.from_user.first_name, uname)
+def profile_handler_text(m: types.Message):
+    show_profile(m.chat.id, m.from_user)
+
+def show_profile(chat_id, user):
+    uid = user.id
+    uname = f"@{user.username}" if user.username else ""
+    u_data = get_user(uid, user.first_name, uname)
     balance, comp_limit, is_unlimited, active_discount, active_promo_code, role = u_data[1], u_data[2], u_data[3], u_data[6], u_data[7], u_data[9]
     
     limit_str = "♾ БЕСКОНЕЧНО" if is_unlimited else f"{comp_limit} / 30"
@@ -394,16 +380,19 @@ def profile_handler(m: types.Message):
     msg = (
         head("👤", "BLACK STUDIO SHOP — Профиль") +
         f"🆔 <b>ID:</b> <code>{uid}</code>\n"
-        f"👤 <b>Имя:</b> {m.from_user.full_name}\n"
+        f"👤 <b>Имя:</b> {user.full_name}\n"
         f"🔰 <b>Должность:</b> {role.upper()}\n"
         f"🔨 <b>Лимит компиляций на сегодня:</b> {limit_str}\n"
         f"🎟 <b>Активная скидка:</b> {promo_text}"
     )
-    bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
+    bot.send_message(chat_id, msg, reply_markup=menu(uid))
 
 @bot.message_handler(func=lambda m: m.text == "🎟 Промокод")
-def promo_menu_handler(m: types.Message):
-    msg = bot.send_message(m.chat.id, "🎟 Введите ваш промокод на скидку в ответном сообщении:")
+def promo_menu_handler_text(m: types.Message):
+    start_promo_input(m.chat.id, m.from_user.id)
+
+def start_promo_input(chat_id, uid):
+    msg = bot.send_message(chat_id, "🎟 Введите ваш промокод на скидку в ответном сообщении:")
     bot.register_next_step_handler(msg, process_promo)
 
 def process_promo(m: types.Message):
@@ -422,21 +411,25 @@ def process_promo(m: types.Message):
     bot.send_message(m.chat.id, f"🎉 <b>Промокод {code} активирован!</b>\nСкидка <b>{discount}%</b> применится к следующему заказу.", reply_markup=menu(uid))
 
 @bot.message_handler(func=lambda m: m.text == "🔨 PWN Compiler")
-def pwn_menu_handler(m: types.Message):
-    uid = m.from_user.id
+def pwn_menu_handler_text(m: types.Message):
+    show_pwn(m.chat.id, m.from_user.id)
+
+def show_pwn(chat_id, uid):
     user_temp_mode[uid] = "PWN"
-    u_data = get_user(uid, m.from_user.first_name)
+    u_data = get_user(uid, "User")
     limit_str = "♾ БЕСКОНЕЧНО" if u_data[3] else f"{u_data[2]} / 30"
     msg = (
         head("🔨", "BLACK STUDIO SHOP — PWN Compiler") +
         f"Осталось попыток: <b>{limit_str}</b>\n\n"
         "📤 Отправьте файл скрипта <code>.pwn</code> в чат документом."
     )
-    bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
+    bot.send_message(chat_id, msg, reply_markup=menu(uid))
 
 @bot.message_handler(func=lambda m: m.text == "⚙️ JNI Compiler")
-def jni_menu_handler(m: types.Message):
-    uid = m.from_user.id
+def jni_menu_handler_text(m: types.Message):
+    show_jni(m.chat.id, m.from_user.id)
+
+def show_jni(chat_id, uid):
     user_temp_mode.pop(uid, None)
     msg = (
         head("⚙️", "BLACK STUDIO SHOP — JNI Compiler") +
@@ -448,10 +441,13 @@ def jni_menu_handler(m: types.Message):
         types.InlineKeyboardButton("🟡 NDK r21e · armeabi-v7a", callback_data="ndk_r21e"),
         types.InlineKeyboardButton("🔴 NDK r16b · armeabi", callback_data="ndk_r16b")
     )
-    bot.send_message(m.chat.id, msg, reply_markup=markup)
+    bot.send_message(chat_id, msg, reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text in ("🛠 Тех. Поддержка", "🛠 Поддержка"))
-def support_menu_handler(m: types.Message):
+def support_menu_handler_text(m: types.Message):
+    show_support(m.chat.id, m.from_user.id)
+
+def show_support(chat_id, uid):
     msg = (
         head("🛠", "BLACK STUDIO SHOP — Поддержка") +
         f"💬 <b>Отзывы:</b> {REVIEWS_URL}\n"
@@ -459,31 +455,39 @@ def support_menu_handler(m: types.Message):
         f"👑 <b>Создатель 2:</b> {CO_OWNER_USERNAME}\n\n"
         "<i>Отправьте сообщение, фото, видео или GIF прямо сюда в чат, и мы ответим!</i>"
     )
-    bot.send_message(m.chat.id, msg, reply_markup=menu(m.from_user.id))
+    bot.send_message(chat_id, msg, reply_markup=menu(uid))
 
 @bot.message_handler(func=lambda m: m.text == "📜 Правила & FAQ")
-def rules_handler(m: types.Message):
+def rules_handler_text(m: types.Message):
+    show_rules(m.chat.id, m.from_user.id)
+
+def show_rules(chat_id, uid):
     msg = (
         head("📜", "BLACK STUDIO SHOP — Правила & FAQ") +
         "1. Оплата за проекты и услуги происходит строго ВПЕРЁД.\n"
         "2. Гарантия работоспособности и техподдержка сборок.\n"
         "3. По всем вопросам: @Evgenn010"
     )
-    bot.send_message(m.chat.id, msg, reply_markup=menu(m.from_user.id))
+    bot.send_message(chat_id, msg, reply_markup=menu(uid))
 
 @bot.message_handler(func=lambda m: m.text == "🌐 Наши Ресурсы")
-def resources_handler(m: types.Message):
+def resources_handler_text(m: types.Message):
+    show_resources(m.chat.id, m.from_user.id)
+
+def show_resources(chat_id, uid):
     msg = (
         head("🌐", "BLACK STUDIO SHOP — Ресурсы") +
         f"💬 <b>Отзывы:</b> {REVIEWS_URL}\n"
         f"👑 <b>Владелец:</b> {OWNER_USERNAME}\n"
         f"🌐 <b>ВКонтакте:</b> {OWNER_VK}"
     )
-    bot.send_message(m.chat.id, msg, reply_markup=menu(m.from_user.id))
+    bot.send_message(chat_id, msg, reply_markup=menu(uid))
 
 @bot.message_handler(func=lambda m: m.text in ("🛠 Панель управления", "🛠 Панель Администратора", "🛠 Админ-панель", "⚡ ПАНЕЛЬ ОЛИГАРХА (Админ)"))
-def admin_panel_handler(m: types.Message):
-    uid = m.from_user.id
+def admin_panel_handler_text(m: types.Message):
+    show_admin_panel(m.chat.id, m.from_user.id)
+
+def show_admin_panel(chat_id, uid):
     if not is_admin(uid):
         return
     role = get_admin_role(uid)
@@ -515,13 +519,13 @@ def admin_panel_handler(m: types.Message):
             types.InlineKeyboardButton("📨 Сообщение юзеру", callback_data="adm_sendto")
         )
         markup.add(types.InlineKeyboardButton("❌ Очистить промо", callback_data="adm_clearpromo"))
-        bot.send_message(m.chat.id, msg, reply_markup=markup)
+        bot.send_message(chat_id, msg, reply_markup=markup)
     elif role in ('media_admin', 'media'):
-        bot.send_message(m.chat.id, "❌ <b>Доступ заблокирован!</b>\nУ должности Медиа-Администратор нет доступа к рассылкам и заказам шопа.")
+        bot.send_message(chat_id, "❌ <b>Доступ заблокирован!</b>\nУ должности Медиа-Администратор нет доступа к рассылкам и заказам шопа.")
     else:
-        bot.send_message(m.chat.id, "❌ У вас нет доступа к Панели Администратора.")
+        bot.send_message(chat_id, "❌ У вас нет доступа к Панели Администратора.")
 
-# ==================== CALLBACKS ====================
+# ==================== CALLBACK ROUTER (УПРАВЛЕНИЕ КНОПКАМИ) ====================
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_router(call: types.CallbackQuery):
@@ -529,29 +533,37 @@ def callback_router(call: types.CallbackQuery):
     data = call.data
     role = get_admin_role(uid)
 
+    # Роутинг инлайн-меню из стартового сообщения
     if data == "menu_shop":
-        return shop_handler(call.message)
+        bot.answer_callback_query(call.id)
+        return show_catalog(call.message.chat.id, uid)
     elif data == "menu_orders":
-        return orders_handler(call.message)
+        bot.answer_callback_query(call.id)
+        return show_orders(call.message.chat.id, uid)
     elif data == "menu_profile":
-        return profile_handler(call.message)
+        bot.answer_callback_query(call.id)
+        return show_profile(call.message.chat.id, call.from_user)
     elif data == "menu_promo":
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "🎟 Введите ваш промокод на скидку в ответном сообщении:")
-        bot.register_next_step_handler(msg, process_promo)
-        return
+        return start_promo_input(call.message.chat.id, uid)
     elif data == "menu_pwn":
-        return pwn_menu_handler(call.message)
+        bot.answer_callback_query(call.id)
+        return show_pwn(call.message.chat.id, uid)
     elif data == "menu_jni":
-        return jni_menu_handler(call.message)
+        bot.answer_callback_query(call.id)
+        return show_jni(call.message.chat.id, uid)
     elif data == "menu_support":
-        return support_menu_handler(call.message)
+        bot.answer_callback_query(call.id)
+        return show_support(call.message.chat.id, uid)
     elif data == "menu_rules":
-        return rules_handler(call.message)
+        bot.answer_callback_query(call.id)
+        return show_rules(call.message.chat.id, uid)
     elif data == "menu_resources":
-        return resources_handler(call.message)
+        bot.answer_callback_query(call.id)
+        return show_resources(call.message.chat.id, uid)
     elif data == "menu_admin":
-        return admin_panel_handler(call.message)
+        bot.answer_callback_query(call.id)
+        return show_admin_panel(call.message.chat.id, uid)
 
     if data.startswith("buy_"):
         items = {
@@ -561,13 +573,12 @@ def callback_router(call: types.CallbackQuery):
             "buy_radmir": ("Мод Радмир 8.4 (ПК)", "100 ⭐ / 90-150 ₽"),
             "buy_forum": ("Готовый Форум", "50 ⭐ / 40 ₽"),
             "buy_site": ("Готовый Сайт", "50 ⭐ / 38 ₽"),
-            "buy_other": ("Лаунчер / Установка / Стиль", "50 ⭐ / 40 ₽")
+            "buy_other": ("Лаунчер / Установка мода / Стиль", "50 ⭐ / 40 ₽")
         }
         title, price = items.get(data, ("Проект", "100 ₽"))
         user_order_step[uid] = title
         bot.answer_callback_query(call.id)
         
-        # Запрашиваем структурированные данные по шаблону
         prompt_text = (
             f"🛒 <b>Оформление заказа: {title}</b>\n\n"
             f"Пожалуйста, отправьте данные для настройки по следующему шаблону (каждый пункт с новой строки или через запятую):\n\n"
@@ -586,16 +597,16 @@ def callback_router(call: types.CallbackQuery):
         bot.register_next_step_handler(msg, process_order_template)
         return
 
-    # Управление заказами для админа (Взять в работу / Отклонить / Готово)
-    if data.startswith("adm_ord_act_"):
+    # Короткие безопасные каллбеки управления заказами: ord_take_ID, ord_can_ID, ord_don_ID
+    if data.startswith("ord_"):
         parts = data.split("_")
-        oid = parts[4]
-        action = parts[5] # take, cancel, done
+        action = parts[1]
+        oid = parts[2]
+        
         if action == "take":
             cursor.execute("UPDATE orders SET status = '⚙️ В работе' WHERE id = ?", (oid,))
             db.commit()
             bot.answer_callback_query(call.id, f"✅ Заказ #{oid} взят в работу!", show_alert=True)
-            # Уведомим юзера
             cursor.execute("SELECT user_id FROM orders WHERE id = ?", (oid,))
             row = cursor.fetchone()
             if row:
@@ -603,7 +614,7 @@ def callback_router(call: types.CallbackQuery):
                     bot.send_message(row[0], f"🚀 <b>Ваш заказ #{oid} взят в работу BLACK STUDIO SHOP!</b>")
                 except:
                     pass
-        elif action == "cancel":
+        elif action == "can":
             cursor.execute("UPDATE orders SET status = '❌ Отклонен' WHERE id = ?", (oid,))
             db.commit()
             bot.answer_callback_query(call.id, f"❌ Заказ #{oid} отклонен.", show_alert=True)
@@ -614,7 +625,7 @@ def callback_router(call: types.CallbackQuery):
                     bot.send_message(row[0], f"❌ <b>Ваш заказ #{oid} был отклонен администрацией.</b>")
                 except:
                     pass
-        elif action == "done":
+        elif action == "don":
             cursor.execute("UPDATE orders SET status = '✅ Готово' WHERE id = ?", (oid,))
             db.commit()
             bot.answer_callback_query(call.id, f"🎉 Заказ #{oid} выполнен!", show_alert=True)
@@ -650,11 +661,12 @@ def callback_router(call: types.CallbackQuery):
                 )
                 markup = types.InlineKeyboardMarkup(row_width=3)
                 markup.add(
-                    types.InlineKeyboardButton("⚙️ В работу", callback_data=f"adm_ord_act_{o[0]}_take"),
-                    types.InlineKeyboardButton("❌ Отклонить", callback_data=f"adm_ord_act_{o[0]}_cancel"),
-                    types.InlineKeyboardButton("✅ Готово", callback_data=f"adm_ord_act_{o[0]}_done")
+                    types.InlineKeyboardButton("⚙️ В работу", callback_data=f"ord_take_{o[0]}"),
+                    types.InlineKeyboardButton("❌ Отклонить", callback_data=f"ord_can_{o[0]}"),
+                    types.InlineKeyboardButton("✅ Готово", callback_data=f"ord_don_{o[0]}")
                 )
                 bot.send_message(call.message.chat.id, ord_msg, reply_markup=markup)
+            bot.answer_callback_query(call.id)
             return
 
         elif data == "adm_stats":
@@ -666,31 +678,37 @@ def callback_router(call: types.CallbackQuery):
             return
 
         elif data == "adm_broadcast":
+            bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "📢 <b>Отправьте сообщение для рассылки (текст, фото, видео или GIF):</b>")
             bot.register_next_step_handler(msg, execute_broadcast_media)
             return
 
         elif data == "adm_givemedia":
+            bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "📸 Введите ID пользователя для выдачи Медиа-Админки:")
             bot.register_next_step_handler(msg, set_media_admin)
             return
 
         elif data == "adm_giveadmin":
+            bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "🛡 Введите ID пользователя для выдачи Админки:")
             bot.register_next_step_handler(msg, set_full_admin)
             return
 
         elif data == "adm_removeadmin":
+            bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "❌ Введите ID пользователя для снятия прав:")
             bot.register_next_step_handler(msg, remove_admin)
             return
 
         elif data == "adm_addbal":
+            bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "💰 Введите ID пользователя и сумму баланса через пробел:")
             bot.register_next_step_handler(msg, give_balance)
             return
 
         elif data == "adm_reset_user_limit":
+            bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "⚡ Введите ID пользователя для сброса лимита:")
             bot.register_next_step_handler(msg, reset_user_limit)
             return
@@ -702,6 +720,7 @@ def callback_router(call: types.CallbackQuery):
             return
 
         elif data == "adm_addpromo":
+            bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "➕ Введите промокод, скидку (%) и лимит через пробел:")
             bot.register_next_step_handler(msg, save_promo)
             return
@@ -716,9 +735,11 @@ def callback_router(call: types.CallbackQuery):
             for p in promos:
                 text += f"🎟 <code>{p[0]}</code> | {p[1]}% | {p[3]}/{p[2]}\n"
             bot.send_message(call.message.chat.id, text)
+            bot.answer_callback_query(call.id)
             return
 
         elif data == "adm_delpromo":
+            bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "🗑 Введите промокод для удаления:")
             bot.register_next_step_handler(msg, delete_promo)
             return
@@ -730,21 +751,25 @@ def callback_router(call: types.CallbackQuery):
             return
 
         elif data == "adm_userinfo":
+            bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "👤 Введите ID пользователя:")
             bot.register_next_step_handler(msg, get_user_info)
             return
 
         elif data == "adm_sendto":
+            bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "📨 Введите ID и текст сообщения через |:")
             bot.register_next_step_handler(msg, send_msg_to_user)
             return
 
         elif data == "adm_ban":
+            bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "🔨 Введите ID пользователя для бана:")
             bot.register_next_step_handler(msg, ban_user)
             return
 
         elif data == "adm_unban":
+            bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "🔓 Введите ID пользователя для разбана:")
             bot.register_next_step_handler(msg, unban_user)
             return
@@ -868,7 +893,6 @@ def process_order_template(m: types.Message):
     item_title = user_order_step.get(uid, "Проект / Сборка")
     raw_text = m.text.strip()
     
-    # Парсим по строкам или запятым
     lines = raw_text.split("\n")
     data_dict = {}
     for line in lines:
@@ -888,7 +912,6 @@ def process_order_template(m: types.Message):
     vip = data_dict.get('8. вип', data_dict.get('вип', 'Не указано'))
     lvl = data_dict.get('9. лвл' or 'уровень', data_dict.get('лвл', 'Не указано'))
 
-    # Если пользователь написал просто через запятую или не строго по шаблону, сохраним весь текст в детали
     u_data = get_user(uid, m.from_user.first_name)
     active_discount, active_promo_code = int(u_data[6] or 0), u_data[7]
     
@@ -926,9 +949,9 @@ def process_order_template(m: types.Message):
         )
         markup = types.InlineKeyboardMarkup(row_width=3)
         markup.add(
-            types.InlineKeyboardButton("⚙️ В работу", callback_data=f"adm_ord_act_{oid}_take"),
-            types.InlineKeyboardButton("❌ Отклонить", callback_data=f"adm_ord_act_{oid}_cancel"),
-            types.InlineKeyboardButton("✅ Готово", callback_data=f"adm_ord_act_{oid}_done")
+            types.InlineKeyboardButton("⚙️ В работу", callback_data=f"ord_take_{oid}"),
+            types.InlineKeyboardButton("❌ Отклонить", callback_data=f"ord_can_{oid}"),
+            types.InlineKeyboardButton("✅ Готово", callback_data=f"ord_don_{oid}")
         )
         bot.send_message(PRIMARY_ADMIN_ID, admin_text, reply_markup=markup)
     except Exception as e:
