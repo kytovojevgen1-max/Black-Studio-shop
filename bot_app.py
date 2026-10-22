@@ -1,17 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-BLACK STUDIO SHOP — Ultimate Inline Start & Menu Edition 2026
+BLACK STUDIO SHOP — Ultimate Edition 2026
 """
 import os
 import sys
 import sqlite3
 import datetime
 import logging
-import shutil
-import subprocess
-import zipfile
 import threading
-import random
 import time
 from flask import Flask
 from telebot import TeleBot, types
@@ -100,11 +96,38 @@ CREATE TABLE IF NOT EXISTS orders (
     user_id INTEGER,
     item_title TEXT,
     price_str TEXT,
-    details_text TEXT,
+    server_name TEXT DEFAULT '',
+    project_name TEXT DEFAULT '',
+    bonus_virt TEXT DEFAULT '',
+    donate_amount TEXT DEFAULT '',
+    tgk TEXT DEFAULT '',
+    vk TEXT DEFAULT '',
+    site TEXT DEFAULT '',
+    vip TEXT DEFAULT '',
+    lvl TEXT DEFAULT '',
     status TEXT DEFAULT '⏳ На рассмотрении',
     created_at TEXT
 )
 """)
+
+# Миграция таблицы orders если старая без колонок
+cols_to_check = [
+    ("server_name", "TEXT DEFAULT ''"),
+    ("project_name", "TEXT DEFAULT ''"),
+    ("bonus_virt", "TEXT DEFAULT ''"),
+    ("donate_amount", "TEXT DEFAULT ''"),
+    ("tgk", "TEXT DEFAULT ''"),
+    ("vk", "TEXT DEFAULT ''"),
+    ("site", "TEXT DEFAULT ''"),
+    ("vip", "TEXT DEFAULT ''"),
+    ("lvl", "TEXT DEFAULT ''")
+]
+for col, ctype in cols_to_check:
+    try:
+        cursor.execute(f"SELECT {col} FROM orders LIMIT 1")
+    except sqlite3.OperationalError:
+        cursor.execute(f"ALTER TABLE orders ADD COLUMN {col} {ctype}")
+        db.commit()
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS promo (
@@ -112,13 +135,6 @@ CREATE TABLE IF NOT EXISTS promo (
     discount INTEGER,
     max_uses INTEGER,
     used_count INTEGER DEFAULT 0
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS used_promo (
-    user_id INTEGER,
-    code TEXT
 )
 """)
 db.commit()
@@ -185,7 +201,7 @@ def menu(uid):
         types.KeyboardButton("🌐 Наши Ресурсы")
     )
     if is_admin(uid):
-        markup.add(types.KeyboardButton("⚡ ПАНЕЛЬ ОЛИГАРХА (Админ)"))
+        markup.add(types.KeyboardButton("🛠 Панель Администратора"))
     return markup
 
 # Inline клавиатура для сообщения /start
@@ -203,7 +219,7 @@ def get_start_inline_menu(uid):
         types.InlineKeyboardButton("🌐 Наши Ресурсы", callback_data="menu_resources")
     )
     if is_admin(uid):
-        markup.add(types.InlineKeyboardButton("⚡ ПАНЕЛЬ ОЛИГАРХА (Админ)", callback_data="menu_admin"))
+        markup.add(types.InlineKeyboardButton("🛠 Панель Администратора", callback_data="menu_admin"))
     return markup
 
 def head(emoji, title):
@@ -240,14 +256,13 @@ def start_cmd(m: types.Message):
             logging.error(f"Error: {e}")
 
     text = (
-        f"👑 <b>BLACK STUDIO SHOP — GOD MODE ENGINE 🔥</b>\n"
+        f"👑 <b>BLACK STUDIO SHOP</b>\n"
         f"▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n"
-        f"Официальный бот высшей пробы. Продажа готовых CRMP/SA-MP сборок, форумов, сайтов, лаунчеров и компиляция скриптов!\n\n"
+        f"Официальный бот BLACK STUDIO SHOP. Продажа готовых сборок, форумов, сайтов, лаунчеров и компиляция скриптов!\n\n"
         f"<b>Выберите нужный раздел кнопками ниже:</b>"
     )
     bot.send_message(m.chat.id, text, reply_markup=get_start_inline_menu(u.id))
-    # Также дублируем Reply-клавиатуру внизу для полного удобства
-    bot.send_message(m.chat.id, "👇 Основная клавиатура активирована:", reply_markup=menu(u.id))
+    bot.send_message(m.chat.id, "👇 Основная клавиатура BLACK STUDIO SHOP активирована:", reply_markup=menu(u.id))
 
 # ==================== ЭКСКЛЮЗИВНЫЕ КОМАНДЫ ДЛЯ ВЛАДЕЛЬЦА ====================
 
@@ -336,12 +351,12 @@ def shop_handler(m: types.Message):
     active_discount, active_promo_code = int(u_data[6] or 0), u_data[7]
     disc_text = f"\n🔥 <i>Активна скидка {active_discount}% ({active_promo_code})!</i>" if active_discount > 0 else ""
     msg = (
-        head("🛍", "Каталог Проектов и Сборок") +
+        head("🛍", "BLACK STUDIO SHOP — Каталог") +
         f"Выберите интересующий проект или услугу:{disc_text}"
     )
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(
-        types.InlineKeyboardButton("📱 BR 2025-26 (с планшетом) · 140 ⭐ / 100-150 ₽", callback_data="buy_br2026"),
+        types.InlineKeyboardButton("📱 BR с планшетом (2026) · 140 ⭐ / 100-150 ₽", callback_data="buy_br2026"),
         types.InlineKeyboardButton("📱 BR 2025 (без планшета) · 120 ⭐ / 60-90 ₽", callback_data="buy_br2025"),
         types.InlineKeyboardButton("📱 BR 2025 (роботы фулл) · 100 ⭐ / 80-130 ₽", callback_data="buy_br2025_robots"),
         types.InlineKeyboardButton("💻 Мод Радмир 8.4 (ПК) · 100 ⭐ / 90-150 ₽", callback_data="buy_radmir"),
@@ -355,15 +370,15 @@ def shop_handler(m: types.Message):
 def orders_handler(m: types.Message):
     uid = m.from_user.id
     user_temp_mode.pop(uid, None)
-    cursor.execute("SELECT id, item_title, price_str, status, created_at FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 10", (uid,))
+    cursor.execute("SELECT id, item_title, price_str, status, created_at, server_name, project_name FROM orders WHERE user_id = ? ORDER BY id DESC LIMIT 10", (uid,))
     orders_list = cursor.fetchall()
     if not orders_list:
-        bot.send_message(m.chat.id, head("📦", "Ваши Заказы") + "У вас пока нет оформленных заказов.", reply_markup=menu(uid))
+        bot.send_message(m.chat.id, head("📦", "BLACK STUDIO SHOP — Ваши Заказы") + "У вас пока нет оформленных заказов.", reply_markup=menu(uid))
         return
         
-    msg = head("📦", "История Заказов")
+    msg = head("📦", "BLACK STUDIO SHOP — История Заказов")
     for o in orders_list:
-        msg += f"📑 <b>Заказ #{o[0]}</b> | {o[4]}\n🛍 <b>Товар:</b> {o[1]}\n💵 <b>Сумма:</b> {o[2]}\n📌 <b>Статус:</b> {o[3]}\n{LINE}\n"
+        msg += f"📑 <b>Заказ #{o[0]}</b> | {o[4]}\n🛍 <b>Товар:</b> {o[1]}\n🌐 <b>Проект:</b> {o[6]} ({o[5]})\n💵 <b>Сумма:</b> {o[2]}\n📌 <b>Статус:</b> {o[3]}\n{LINE}\n"
     bot.send_message(m.chat.id, msg, reply_markup=menu(uid))
 
 @bot.message_handler(func=lambda m: m.text == "👤 Мой Профиль")
@@ -377,7 +392,7 @@ def profile_handler(m: types.Message):
     promo_text = f"<code>{active_promo_code}</code> (-{active_discount}%)" if active_discount > 0 else "Нет"
     
     msg = (
-        head("👤", "Профиль Покупателя") +
+        head("👤", "BLACK STUDIO SHOP — Профиль") +
         f"🆔 <b>ID:</b> <code>{uid}</code>\n"
         f"👤 <b>Имя:</b> {m.from_user.full_name}\n"
         f"🔰 <b>Должность:</b> {role.upper()}\n"
@@ -413,7 +428,7 @@ def pwn_menu_handler(m: types.Message):
     u_data = get_user(uid, m.from_user.first_name)
     limit_str = "♾ БЕСКОНЕЧНО" if u_data[3] else f"{u_data[2]} / 30"
     msg = (
-        head("🔨", "PWN Compiler (.pwn to .amx)") +
+        head("🔨", "BLACK STUDIO SHOP — PWN Compiler") +
         f"Осталось попыток: <b>{limit_str}</b>\n\n"
         "📤 Отправьте файл скрипта <code>.pwn</code> в чат документом."
     )
@@ -424,7 +439,7 @@ def jni_menu_handler(m: types.Message):
     uid = m.from_user.id
     user_temp_mode.pop(uid, None)
     msg = (
-        head("⚙️", "JNI Compiler (Android NDK)") +
+        head("⚙️", "BLACK STUDIO SHOP — JNI Compiler") +
         "Выберите версию NDK для компиляции `.so`:"
     )
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -438,7 +453,7 @@ def jni_menu_handler(m: types.Message):
 @bot.message_handler(func=lambda m: m.text in ("🛠 Тех. Поддержка", "🛠 Поддержка"))
 def support_menu_handler(m: types.Message):
     msg = (
-        head("🛠", "Техническая Поддержка") +
+        head("🛠", "BLACK STUDIO SHOP — Поддержка") +
         f"💬 <b>Отзывы:</b> {REVIEWS_URL}\n"
         f"👑 <b>Создатель 1:</b> {OWNER_USERNAME}\n"
         f"👑 <b>Создатель 2:</b> {CO_OWNER_USERNAME}\n\n"
@@ -449,7 +464,7 @@ def support_menu_handler(m: types.Message):
 @bot.message_handler(func=lambda m: m.text == "📜 Правила & FAQ")
 def rules_handler(m: types.Message):
     msg = (
-        head("📜", "Правила и FAQ") +
+        head("📜", "BLACK STUDIO SHOP — Правила & FAQ") +
         "1. Оплата за проекты и услуги происходит строго ВПЕРЁД.\n"
         "2. Гарантия работоспособности и техподдержка сборок.\n"
         "3. По всем вопросам: @Evgenn010"
@@ -459,7 +474,7 @@ def rules_handler(m: types.Message):
 @bot.message_handler(func=lambda m: m.text == "🌐 Наши Ресурсы")
 def resources_handler(m: types.Message):
     msg = (
-        head("🌐", "Наши Ресурсы") +
+        head("🌐", "BLACK STUDIO SHOP — Ресурсы") +
         f"💬 <b>Отзывы:</b> {REVIEWS_URL}\n"
         f"👑 <b>Владелец:</b> {OWNER_USERNAME}\n"
         f"🌐 <b>ВКонтакте:</b> {OWNER_VK}"
@@ -475,7 +490,7 @@ def admin_panel_handler(m: types.Message):
     
     if role == 'owner':
         msg = (
-            "🛠 <b>Панель управления</b>\n"
+            "🛠 <b>Панель Администратора</b>\n"
             "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n"
             "Ваш уровень доступа: 👑 <b>Создатель (Полный доступ)</b>\n\n"
             "Выберите нужную категорию управления:"
@@ -504,7 +519,7 @@ def admin_panel_handler(m: types.Message):
     elif role in ('media_admin', 'media'):
         bot.send_message(m.chat.id, "❌ <b>Доступ заблокирован!</b>\nУ должности Медиа-Администратор нет доступа к рассылкам и заказам шопа.")
     else:
-        bot.send_message(m.chat.id, "❌ У вас нет доступа к Панели управления.")
+        bot.send_message(m.chat.id, "❌ У вас нет доступа к Панели Администратора.")
 
 # ==================== CALLBACKS ====================
 
@@ -514,7 +529,6 @@ def callback_router(call: types.CallbackQuery):
     data = call.data
     role = get_admin_role(uid)
 
-    # Обработка нажатий на инлайн-меню из сообщения /start
     if data == "menu_shop":
         return shop_handler(call.message)
     elif data == "menu_orders":
@@ -541,19 +555,76 @@ def callback_router(call: types.CallbackQuery):
 
     if data.startswith("buy_"):
         items = {
-            "buy_br2026": ("Black Russia 2025-2026 (с планшетом)", "140 ⭐ / 100-150 ₽"),
-            "buy_br2025": ("Black Russia 2025 (без планшета)", "120 ⭐ / 60-90 ₽"),
-            "buy_br2025_robots": ("Black Russia 2025 (роботы фулл)", "100 ⭐ / 80-130 ₽"),
+            "buy_br2026": ("BR с планшетом (2026)", "140 ⭐ / 100-150 ₽"),
+            "buy_br2025": ("BR 2025 (без планшета)", "120 ⭐ / 60-90 ₽"),
+            "buy_br2025_robots": ("BR 2025 (роботы фулл)", "100 ⭐ / 80-130 ₽"),
             "buy_radmir": ("Мод Радмир 8.4 (ПК)", "100 ⭐ / 90-150 ₽"),
             "buy_forum": ("Готовый Форум", "50 ⭐ / 40 ₽"),
             "buy_site": ("Готовый Сайт", "50 ⭐ / 38 ₽"),
-            "buy_other": ("Лаунчер / Установка мода / Стиль", "50 ⭐ / 40 ₽")
+            "buy_other": ("Лаунчер / Установка / Стиль", "50 ⭐ / 40 ₽")
         }
         title, price = items.get(data, ("Проект", "100 ₽"))
         user_order_step[uid] = title
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, f"✏️ <b>Оформление заказа: {title}</b>\n\nУкажите детали заказа в ответном сообщении:")
-        bot.register_next_step_handler(msg, process_order_final)
+        
+        # Запрашиваем структурированные данные по шаблону
+        prompt_text = (
+            f"🛒 <b>Оформление заказа: {title}</b>\n\n"
+            f"Пожалуйста, отправьте данные для настройки по следующему шаблону (каждый пункт с новой строки или через запятую):\n\n"
+            f"1. Названия сервера:\n"
+            f"2. Названия Проекта:\n"
+            f"3. Скок бонус вертов:\n"
+            f"4. Доната:\n"
+            f"5. Тгк:\n"
+            f"6. ВК:\n"
+            f"7. Сайт:\n"
+            f"8. Вип:\n"
+            f"9. Лвл:\n\n"
+            f"<i>Отправьте всю информацию одним сообщением!</i>"
+        )
+        msg = bot.send_message(call.message.chat.id, prompt_text)
+        bot.register_next_step_handler(msg, process_order_template)
+        return
+
+    # Управление заказами для админа (Взять в работу / Отклонить / Готово)
+    if data.startswith("adm_ord_act_"):
+        parts = data.split("_")
+        oid = parts[4]
+        action = parts[5] # take, cancel, done
+        if action == "take":
+            cursor.execute("UPDATE orders SET status = '⚙️ В работе' WHERE id = ?", (oid,))
+            db.commit()
+            bot.answer_callback_query(call.id, f"✅ Заказ #{oid} взят в работу!", show_alert=True)
+            # Уведомим юзера
+            cursor.execute("SELECT user_id FROM orders WHERE id = ?", (oid,))
+            row = cursor.fetchone()
+            if row:
+                try:
+                    bot.send_message(row[0], f"🚀 <b>Ваш заказ #{oid} взят в работу BLACK STUDIO SHOP!</b>")
+                except:
+                    pass
+        elif action == "cancel":
+            cursor.execute("UPDATE orders SET status = '❌ Отклонен' WHERE id = ?", (oid,))
+            db.commit()
+            bot.answer_callback_query(call.id, f"❌ Заказ #{oid} отклонен.", show_alert=True)
+            cursor.execute("SELECT user_id FROM orders WHERE id = ?", (oid,))
+            row = cursor.fetchone()
+            if row:
+                try:
+                    bot.send_message(row[0], f"❌ <b>Ваш заказ #{oid} был отклонен администрацией.</b>")
+                except:
+                    pass
+        elif action == "done":
+            cursor.execute("UPDATE orders SET status = '✅ Готово' WHERE id = ?", (oid,))
+            db.commit()
+            bot.answer_callback_query(call.id, f"🎉 Заказ #{oid} выполнен!", show_alert=True)
+            cursor.execute("SELECT user_id FROM orders WHERE id = ?", (oid,))
+            row = cursor.fetchone()
+            if row:
+                try:
+                    bot.send_message(row[0], f"🎉 <b>Ваш заказ #{oid} успешно выполнен и готов! Спасибо, что выбрали BLACK STUDIO SHOP!</b>")
+                except:
+                    pass
         return
 
     if role in ('media_admin', 'media') and (data == "adm_all_orders" or data == "adm_broadcast"):
@@ -562,17 +633,28 @@ def callback_router(call: types.CallbackQuery):
 
     if role == 'owner':
         if data == "adm_all_orders":
-            cursor.execute("SELECT id, user_id, item_title, price_str, status, created_at FROM orders ORDER BY id DESC LIMIT 15")
+            cursor.execute("SELECT id, user_id, item_title, price_str, status, created_at, server_name, project_name FROM orders ORDER BY id DESC LIMIT 15")
             orders = cursor.fetchall()
             if not orders:
                 bot.answer_callback_query(call.id, "Заказов пока нет.", show_alert=True)
                 return
-            msg = head("📋", "Все Заказы (Hub)")
-            markup = types.InlineKeyboardMarkup(row_width=1)
             for o in orders:
-                msg += f"🆔 <b>Заказ #{o[0]}</b> | {o[5]}\n👤 Юзер: <code>{o[1]}</code>\n🛍 {o[2]} — {o[3]}\n📌 Статус: <b>{o[4]}</b>\n{LINE}\n"
-                markup.add(types.InlineKeyboardButton(f"⚙️ Управление Заказом #{o[0]}", callback_data=f"adm_ord_{o[0]}"))
-            bot.send_message(call.message.chat.id, msg, reply_markup=markup)
+                ord_msg = (
+                    f"📋 <b>ЗАКАЗ #{o[0]}</b> | {o[5]}\n"
+                    f"👤 Юзер ID: <code>{o[1]}</code>\n"
+                    f"🛍 <b>Товар:</b> {o[2]}\n"
+                    f"💵 <b>Цена:</b> {o[3]}\n"
+                    f"🌐 <b>Проект:</b> {o[7]} | Сервер: {o[6]}\n"
+                    f"📌 <b>Статус:</b> <b>{o[4]}</b>\n"
+                    f"{LINE}"
+                )
+                markup = types.InlineKeyboardMarkup(row_width=3)
+                markup.add(
+                    types.InlineKeyboardButton("⚙️ В работу", callback_data=f"adm_ord_act_{o[0]}_take"),
+                    types.InlineKeyboardButton("❌ Отклонить", callback_data=f"adm_ord_act_{o[0]}_cancel"),
+                    types.InlineKeyboardButton("✅ Готово", callback_data=f"adm_ord_act_{o[0]}_done")
+                )
+                bot.send_message(call.message.chat.id, ord_msg, reply_markup=markup)
             return
 
         elif data == "adm_stats":
@@ -750,7 +832,7 @@ def universal_user_message_handler(m: types.Message):
     if is_admin(uid):
         if m.reply_to_message:
             orig_text = m.reply_to_message.text or m.reply_to_message.caption or ""
-            if "🆔 ID:" in orig_text or "🆔 ID клиента:" in orig_text:
+            if "🆔 ID:" in orig_text or "🆔 ID клиента:" in orig_text or "🆔 Юзер ID:" in orig_text:
                 try:
                     target_id = int(orig_text.split("ID:")[1].split()[0].replace("<code>", "").replace("</code>", ""))
                     bot.copy_message(target_id, m.chat.id, m.message_id)
@@ -781,11 +863,32 @@ def universal_user_message_handler(m: types.Message):
     except Exception as e:
         logging.error(f"Support forward error: {e}")
 
-def process_order_final(m: types.Message):
+def process_order_template(m: types.Message):
     uid = m.from_user.id
     item_title = user_order_step.get(uid, "Проект / Сборка")
-    details = m.text.strip()
+    raw_text = m.text.strip()
     
+    # Парсим по строкам или запятым
+    lines = raw_text.split("\n")
+    data_dict = {}
+    for line in lines:
+        if ":" in line:
+            parts = line.split(":", 1)
+            key = parts[0].strip().lower()
+            val = parts[1].strip()
+            data_dict[key] = val
+
+    server_name = data_dict.get('1. названий сервера' or 'названия сервера' or 'сервер', data_dict.get('сервер', 'Не указано'))
+    project_name = data_dict.get('2. названий проекта' or 'названия проекта' or 'проект', data_dict.get('проект', 'Не указано'))
+    bonus_virt = data_dict.get('3. скок бонус вертов' or 'бонус вертов' or 'верты', data_dict.get('верты', 'Не указано'))
+    donate_amount = data_dict.get('4. доната' or 'донат', data_dict.get('донат', 'Не указано'))
+    tgk = data_dict.get('5. тгк' or 'телеграм', data_dict.get('тгк', 'Не указано'))
+    vk = data_dict.get('6. вк' or 'vk', data_dict.get('вк', 'Не указано'))
+    site = data_dict.get('7. сайт', data_dict.get('сайт', 'Не указано'))
+    vip = data_dict.get('8. вип', data_dict.get('вип', 'Не указано'))
+    lvl = data_dict.get('9. лвл' or 'уровень', data_dict.get('лвл', 'Не указано'))
+
+    # Если пользователь написал просто через запятую или не строго по шаблону, сохраним весь текст в детали
     u_data = get_user(uid, m.from_user.first_name)
     active_discount, active_promo_code = int(u_data[6] or 0), u_data[7]
     
@@ -799,17 +902,37 @@ def process_order_final(m: types.Message):
         price_str = f"<b>{orig_price} ₽</b>"
 
     created_at = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M")
-    cursor.execute("INSERT INTO orders (user_id, item_title, price_str, details_text, status, created_at) VALUES (?, ?, ?, ?, '⏳ На рассмотрении', ?)", (uid, item_title, price_str, details, created_at))
+    
+    cursor.execute("""
+        INSERT INTO orders (user_id, item_title, price_str, server_name, project_name, bonus_virt, donate_amount, tgk, vk, site, vip, lvl, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '⏳ На рассмотрении', ?)
+    """, (uid, item_title, price_str, raw_text[:50], raw_text[:50], bonus_virt, donate_amount, tgk, vk, site, vip, lvl, created_at))
     db.commit()
     oid = cursor.lastrowid
 
-    bot.send_message(m.chat.id, f"✅ <b>Заказ #{oid} успешно оформлен!</b>\n🛍 {item_title}\n💰 К оплате: {price_str}\n\n💳 Оплата строго вперёд! Создатели свяжутся с вами.", reply_markup=menu(uid))
+    bot.send_message(m.chat.id, f"✅ <b>Заказ #{oid} успешно оформлен в BLACK STUDIO SHOP!</b>\n🛍 {item_title}\n💰 К оплате: {price_str}\n\n💳 Оплата строго вперёд! Создатели свяжутся с вами.", reply_markup=menu(uid))
     
     try:
-        admin_text = f"🛒 <b>НОВЫЙ ЗАКАЗ #{oid}!</b>\n👤 Юзер: {m.from_user.full_name} (<code>{uid}</code>)\n🛍 Товар: {item_title}\n💰 Цена: {price_str}\n\n<b>Детали:</b>\n<code>{details}</code>"
-        bot.send_message(PRIMARY_ADMIN_ID, admin_text)
-    except:
-        pass
+        admin_text = (
+            f"🛒 <b>BLACK STUDIO SHOP — НОВЫЙ ЗАКАЗ #{oid}!</b>\n"
+            f"👤 <b>Покупатель:</b> {m.from_user.full_name} (<code>{uid}</code>)\n"
+            f"🛍 <b>Товар:</b> {item_title}\n"
+            f"💵 <b>Цена:</b> {price_str}\n"
+            f"{LINE}\n"
+            f"📋 <b>ДЕТАЛИ ЗАКАЗА:</b>\n"
+            f"<code>{raw_text}</code>\n"
+            f"{LINE}\n"
+            f"<i>Нажмите кнопку ниже в панели управления, чтобы взять в работу, отклонить или завершить!</i>"
+        )
+        markup = types.InlineKeyboardMarkup(row_width=3)
+        markup.add(
+            types.InlineKeyboardButton("⚙️ В работу", callback_data=f"adm_ord_act_{oid}_take"),
+            types.InlineKeyboardButton("❌ Отклонить", callback_data=f"adm_ord_act_{oid}_cancel"),
+            types.InlineKeyboardButton("✅ Готово", callback_data=f"adm_ord_act_{oid}_done")
+        )
+        bot.send_message(PRIMARY_ADMIN_ID, admin_text, reply_markup=markup)
+    except Exception as e:
+        logging.error(f"Admin order send error: {e}")
 
 def execute_broadcast_media(m: types.Message):
     cursor.execute("SELECT id FROM users")
